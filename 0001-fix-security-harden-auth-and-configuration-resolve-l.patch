@@ -1,0 +1,947 @@
+From 5751bd3e8626cb77dcd05d2335a710302a4084b8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 20:52:35 +0100
+Subject: [PATCH] fix(security): harden auth and configuration, resolve lint
+ errors
+
+Security
+- Refuse to start outside development with the dev/placeholder/short
+  SECRET_KEY, DEBUG=true, or wildcard CORS origins
+- Enable CORS middleware using CORS_ORIGINS (was configured but unused)
+- Use the user ID as the JWT subject; require exp and sub claims
+- Equalize login timing for unknown accounts; rate limit failed logins
+  (HTTP 429, in-memory, per process)
+- Reject unknown fields on register/login so role cannot be supplied
+- Handle concurrent duplicate registration (409 instead of 500)
+- Add require_roles() dependency for role-restricted endpoints
+- Add security response headers; serve API docs only in development
+- /health returns 503 when the database is unreachable
+- Docker image runs as non-root with a health check; CI read-only perms
+
+Quality
+- Fix all ruff errors (imports, B008, BLE001, UP017, F401, E501) and
+  enable E,F,I,B,UP,BLE rules
+- Replace deprecated on_event with lifespan
+- Ignore *.egg-info/, build/, dist/
+- Expand tests from 3 to 25; update docs/SECURITY.md
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_011VarDJrPNNxiobdRVsj4gK
+---
+ .github/workflows/ci.yml    |   2 +
+ .gitignore                  |   3 +
+ Dockerfile                  |   7 +-
+ backend/app/core/config.py  |  46 +++++++-
+ backend/app/db.py           |   5 +
+ backend/app/dependencies.py |  26 ++++-
+ backend/app/main.py         |  66 +++++++++--
+ backend/app/models.py       |   9 +-
+ backend/app/routers/auth.py |  55 +++++++--
+ backend/app/schemas.py      |   7 ++
+ backend/app/security.py     |  90 +++++++++++++--
+ docs/SECURITY.md            |  17 ++-
+ pyproject.toml              |   5 +
+ tests/conftest.py           |  43 +++++++
+ tests/test_api.py           | 221 +++++++++++++++++++++++++++++++-----
+ tests/test_config.py        |  47 ++++++++
+ 16 files changed, 585 insertions(+), 64 deletions(-)
+ create mode 100644 tests/conftest.py
+ create mode 100644 tests/test_config.py
+
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index a15b072..0710a09 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -4,6 +4,8 @@ on:
+     branches: [main, develop, 'feature/**']
+   pull_request:
+     branches: [main, develop]
++permissions:
++  contents: read
+ jobs:
+   test:
+     runs-on: ubuntu-latest
+diff --git a/.gitignore b/.gitignore
+index 46354b7..0e17b82 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -4,6 +4,9 @@ __pycache__/
+ *.py[cod]
+ .pytest_cache/
+ .ruff_cache/
++*.egg-info/
++build/
++dist/
+ *.db
+ *.sqlite3
+ .DS_Store
+diff --git a/Dockerfile b/Dockerfile
+index 3434554..0e90d77 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -3,6 +3,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ WORKDIR /app
+ COPY pyproject.toml README.md ./
+ COPY backend ./backend
+-RUN pip install --no-cache-dir .
++RUN pip install --no-cache-dir . \
++    && useradd --system --uid 10001 --home-dir /app appuser \
++    && chown appuser:appuser /app
++USER appuser
+ EXPOSE 8000
++HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
++    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+ CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 898bea3..6bd3ef5 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -1,16 +1,60 @@
+ from functools import lru_cache
++from typing import Self
++
++from pydantic import model_validator
+ from pydantic_settings import BaseSettings, SettingsConfigDict
+ 
++DEV_SECRET_KEY = "dev-only-insecure-secret-key-do-not-use-in-production"
++PLACEHOLDER_SECRET_PREFIX = "replace-with"
++MIN_SECRET_LENGTH = 32
++
++
+ class Settings(BaseSettings):
+     app_name: str = "HarvestLink AI"
+     environment: str = "development"
+     debug: bool = False
+     database_url: str = "sqlite:///./harvestlink.db"
+-    secret_key: str = "change-me-in-production"
++    secret_key: str = DEV_SECRET_KEY
+     access_token_expire_minutes: int = 30
+     cors_origins: str = "http://localhost:3000"
++    login_max_failed_attempts: int = 5
++    login_lockout_seconds: int = 900
+     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+ 
++    @property
++    def is_development(self) -> bool:
++        return self.environment == "development"
++
++    @property
++    def cors_origin_list(self) -> list[str]:
++        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
++
++    @model_validator(mode="after")
++    def reject_unsafe_configuration(self) -> Self:
++        """Refuse to start outside development with insecure defaults."""
++        if self.is_development:
++            return self
++        problems = []
++        if (
++            self.secret_key == DEV_SECRET_KEY
++            or self.secret_key.startswith(PLACEHOLDER_SECRET_PREFIX)
++            or len(self.secret_key) < MIN_SECRET_LENGTH
++        ):
++            problems.append(
++                f"SECRET_KEY must be a unique random value of at least "
++                f"{MIN_SECRET_LENGTH} characters"
++            )
++        if self.debug:
++            problems.append("DEBUG must be false")
++        if "*" in self.cors_origin_list:
++            problems.append("CORS_ORIGINS must list explicit origins, not '*'")
++        if problems:
++            raise ValueError(
++                f"Unsafe configuration for ENVIRONMENT={self.environment!r}: " + "; ".join(problems)
++            )
++        return self
++
++
+ @lru_cache
+ def get_settings() -> Settings:
+     return Settings()
+diff --git a/backend/app/db.py b/backend/app/db.py
+index 6ec924b..c808cf0 100644
+--- a/backend/app/db.py
++++ b/backend/app/db.py
+@@ -1,17 +1,22 @@
+ from sqlalchemy import create_engine
+ from sqlalchemy.orm import DeclarativeBase, sessionmaker
++
+ from app.core.config import get_settings
+ 
++
+ class Base(DeclarativeBase):
+     pass
+ 
++
+ def build_engine(url: str):
+     args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+     return create_engine(url, connect_args=args, pool_pre_ping=True)
+ 
++
+ engine = build_engine(get_settings().database_url)
+ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+ 
++
+ def get_db():
+     db = SessionLocal()
+     try:
+diff --git a/backend/app/dependencies.py b/backend/app/dependencies.py
+index 886ec57..fc5df5c 100644
+--- a/backend/app/dependencies.py
++++ b/backend/app/dependencies.py
+@@ -1,19 +1,39 @@
++from collections.abc import Callable
++
+ import jwt
+ from fastapi import Depends, HTTPException
+ from fastapi.security import OAuth2PasswordBearer
+ from sqlalchemy.orm import Session
++
+ from app.db import get_db
+ from app.models import User
+ from app.security import decode_access_token
++
+ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+ 
++
+ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+-    error = HTTPException(status_code=401, detail="Invalid or expired authentication token", headers={"WWW-Authenticate":"Bearer"})
++    error = HTTPException(
++        status_code=401,
++        detail="Invalid or expired authentication token",
++        headers={"WWW-Authenticate": "Bearer"},
++    )
+     try:
+-        email = decode_access_token(token)
++        user_id = int(decode_access_token(token))
+     except (jwt.InvalidTokenError, ValueError):
+         raise error from None
+-    user = db.query(User).filter(User.email == email).first()
++    user = db.get(User, user_id)
+     if user is None or not user.is_active:
+         raise error
+     return user
++
++
++def require_roles(*roles: str) -> Callable[..., User]:
++    """Dependency factory: allow only users whose role is one of ``roles``."""
++
++    def checker(user: User = Depends(get_current_user)) -> User:
++        if user.role not in roles:
++            raise HTTPException(status_code=403, detail="Insufficient permissions")
++        return user
++
++    return checker
+diff --git a/backend/app/main.py b/backend/app/main.py
+index 1cd5f4a..faf47d2 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -1,27 +1,71 @@
+-from fastapi import FastAPI, Depends
++from collections.abc import AsyncIterator
++from contextlib import asynccontextmanager
++
++from fastapi import Depends, FastAPI, Request
++from fastapi.middleware.cors import CORSMiddleware
++from fastapi.responses import JSONResponse
+ from sqlalchemy import text
++from sqlalchemy.exc import SQLAlchemyError
+ from sqlalchemy.orm import Session
++
++from app import models  # noqa: F401  (imported so ORM tables are registered)
+ from app.core.config import get_settings
+ from app.db import Base, engine, get_db
+-from app import models  # register ORM metadata
+ from app.routers.auth import router as auth_router
++
+ settings = get_settings()
+-app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
+-app.include_router(auth_router)
+ 
+-@app.on_event("startup")
+-def create_dev_schema():
+-    if settings.environment == "development":
++
++@asynccontextmanager
++async def lifespan(_: FastAPI) -> AsyncIterator[None]:
++    if settings.is_development:
+         Base.metadata.create_all(bind=engine)
++    yield
++
++
++# Interactive API docs are only exposed in development.
++docs_enabled = settings.is_development
++app = FastAPI(
++    title=settings.app_name,
++    version="0.1.0",
++    debug=settings.debug,
++    lifespan=lifespan,
++    docs_url="/docs" if docs_enabled else None,
++    redoc_url="/redoc" if docs_enabled else None,
++    openapi_url="/openapi.json" if docs_enabled else None,
++)
++app.add_middleware(
++    CORSMiddleware,
++    allow_origins=settings.cors_origin_list,
++    allow_credentials=False,
++    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
++    allow_headers=["Authorization", "Content-Type"],
++)
++app.include_router(auth_router)
++
++
++@app.middleware("http")
++async def add_security_headers(request: Request, call_next):
++    response = await call_next(request)
++    response.headers.setdefault("X-Content-Type-Options", "nosniff")
++    response.headers.setdefault("X-Frame-Options", "DENY")
++    response.headers.setdefault("Referrer-Policy", "no-referrer")
++    if request.url.path.startswith("/api/"):
++        response.headers.setdefault("Cache-Control", "no-store")
++    return response
++
+ 
+ @app.get("/")
+ def root():
+-    return {"name": settings.app_name, "docs":"/docs"}
++    return {"name": settings.app_name, "docs": "/docs" if docs_enabled else None}
++
+ 
+ @app.get("/health")
+ def health(db: Session = Depends(get_db)):
+     try:
+         db.execute(text("SELECT 1"))
+-        return {"status":"ok", "database":"ok"}
+-    except Exception:
+-        return {"status":"degraded", "database":"unavailable"}
++    except SQLAlchemyError:
++        return JSONResponse(
++            status_code=503, content={"status": "degraded", "database": "unavailable"}
++        )
++    return {"status": "ok", "database": "ok"}
+diff --git a/backend/app/models.py b/backend/app/models.py
+index 22551ac..ea59e69 100644
+--- a/backend/app/models.py
++++ b/backend/app/models.py
+@@ -1,8 +1,11 @@
+-from datetime import datetime, timezone
++from datetime import UTC, datetime
++
+ from sqlalchemy import Boolean, DateTime, Integer, String
+ from sqlalchemy.orm import Mapped, mapped_column
++
+ from app.db import Base
+ 
++
+ class User(Base):
+     __tablename__ = "users"
+     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+@@ -11,4 +14,6 @@ class User(Base):
+     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+     role: Mapped[str] = mapped_column(String(30), default="farmer", nullable=False)
+     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
++    created_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
++    )
+diff --git a/backend/app/routers/auth.py b/backend/app/routers/auth.py
+index 497d501..5b12eb4 100644
+--- a/backend/app/routers/auth.py
++++ b/backend/app/routers/auth.py
+@@ -1,27 +1,66 @@
+-from fastapi import APIRouter, Depends, HTTPException
++from fastapi import APIRouter, Depends, HTTPException, Request
++from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
++
+ from app.db import get_db
+ from app.dependencies import get_current_user
+ from app.models import User
+ from app.schemas import TokenResponse, UserLogin, UserPublic, UserRegister
+-from app.security import create_access_token, hash_password, verify_password
++from app.security import (
++    create_access_token,
++    hash_password,
++    login_limiter,
++    verify_password_or_dummy,
++)
++
+ router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
+ 
++
+ @router.post("/register", response_model=UserPublic, status_code=201)
+ def register(payload: UserRegister, db: Session = Depends(get_db)):
+     email = payload.email.lower()
+     if db.query(User).filter(User.email == email).first():
+         raise HTTPException(status_code=409, detail="An account with this email already exists")
+-    user = User(email=email, full_name=payload.full_name.strip(), password_hash=hash_password(payload.password), role="farmer")
+-    db.add(user); db.commit(); db.refresh(user)
++    user = User(
++        email=email,
++        full_name=payload.full_name.strip(),
++        password_hash=hash_password(payload.password),
++        role="farmer",
++    )
++    db.add(user)
++    try:
++        db.commit()
++    except IntegrityError:
++        # Lost a race with a concurrent registration for the same email.
++        db.rollback()
++        raise HTTPException(
++            status_code=409, detail="An account with this email already exists"
++        ) from None
++    db.refresh(user)
+     return user
+ 
++
+ @router.post("/login", response_model=TokenResponse)
+-def login(payload: UserLogin, db: Session = Depends(get_db)):
+-    user = db.query(User).filter(User.email == payload.email.lower()).first()
+-    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
++def login(payload: UserLogin, request: Request, db: Session = Depends(get_db)):
++    email = payload.email.lower()
++    client_host = request.client.host if request.client else "unknown"
++    limiter_key = f"{client_host}:{email}"
++    if login_limiter.is_blocked(limiter_key):
++        raise HTTPException(
++            status_code=429,
++            detail="Too many failed login attempts. Try again later.",
++            headers={"Retry-After": str(login_limiter.window_seconds)},
++        )
++    user = db.query(User).filter(User.email == email).first()
++    password_ok = verify_password_or_dummy(
++        payload.password, user.password_hash if user is not None else None
++    )
++    if user is None or not user.is_active or not password_ok:
++        login_limiter.record_failure(limiter_key)
+         raise HTTPException(status_code=401, detail="Incorrect email or password")
+-    return TokenResponse(access_token=create_access_token(user.email))
++    login_limiter.reset(limiter_key)
++    return TokenResponse(access_token=create_access_token(str(user.id)))
++
+ 
+ @router.get("/me", response_model=UserPublic)
+ def me(user: User = Depends(get_current_user)):
+diff --git a/backend/app/schemas.py b/backend/app/schemas.py
+index 63e99d3..19e5e15 100644
+--- a/backend/app/schemas.py
++++ b/backend/app/schemas.py
+@@ -1,14 +1,20 @@
+ from pydantic import BaseModel, ConfigDict, EmailStr, Field
+ 
++
+ class UserRegister(BaseModel):
++    # Reject unknown fields so a client cannot try to smuggle in a role or status.
++    model_config = ConfigDict(extra="forbid")
+     email: EmailStr
+     full_name: str = Field(min_length=2, max_length=120)
+     password: str = Field(min_length=10, max_length=128)
+ 
++
+ class UserLogin(BaseModel):
++    model_config = ConfigDict(extra="forbid")
+     email: EmailStr
+     password: str = Field(min_length=1, max_length=128)
+ 
++
+ class UserPublic(BaseModel):
+     model_config = ConfigDict(from_attributes=True)
+     id: int
+@@ -17,6 +23,7 @@ class UserPublic(BaseModel):
+     role: str
+     is_active: bool
+ 
++
+ class TokenResponse(BaseModel):
+     access_token: str
+     token_type: str = "bearer"
+diff --git a/backend/app/security.py b/backend/app/security.py
+index a11ee23..ab7b5cc 100644
+--- a/backend/app/security.py
++++ b/backend/app/security.py
+@@ -1,23 +1,97 @@
+-from datetime import datetime, timedelta, timezone
++import threading
++import time
++from collections import defaultdict, deque
++from datetime import UTC, datetime, timedelta
++
+ import jwt
+ from pwdlib import PasswordHash
++
+ from app.core.config import get_settings
++
+ _password_hash = PasswordHash.recommended()
++# Verified against when an account does not exist, so response time does not reveal
++# whether an email address is registered.
++_DUMMY_HASH = _password_hash.hash("harvestlink-timing-equalizer")
++
+ 
+ def hash_password(password: str) -> str:
+     return _password_hash.hash(password)
+ 
++
+ def verify_password(password: str, stored_hash: str) -> bool:
+     return _password_hash.verify(password, stored_hash)
+ 
++
++def verify_password_or_dummy(password: str, stored_hash: str | None) -> bool:
++    """Verify a password, spending the same effort when the account is unknown."""
++    if stored_hash is None:
++        _password_hash.verify(password, _DUMMY_HASH)
++        return False
++    return _password_hash.verify(password, stored_hash)
++
++
+ def create_access_token(subject: str) -> str:
+     settings = get_settings()
+-    expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+-    return jwt.encode({"sub": subject, "exp": expiry}, settings.secret_key, algorithm="HS256")
++    now = datetime.now(UTC)
++    payload = {
++        "sub": subject,
++        "iat": now,
++        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
++    }
++    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
++
+ 
+ def decode_access_token(token: str) -> str:
+-    payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
+-    subject = payload.get("sub")
+-    if not subject:
+-        raise jwt.InvalidTokenError("Missing subject")
+-    return str(subject)
++    payload = jwt.decode(
++        token,
++        get_settings().secret_key,
++        algorithms=["HS256"],
++        options={"require": ["exp", "sub"]},
++    )
++    return str(payload["sub"])
++
++
++class LoginRateLimiter:
++    """In-memory sliding-window limiter for failed logins.
++
++    State is per process: with several workers or replicas, move this to a shared
++    store such as Redis.
++    """
++
++    def __init__(self, max_failures: int, window_seconds: int) -> None:
++        self.max_failures = max_failures
++        self.window_seconds = window_seconds
++        self._failures: dict[str, deque[float]] = defaultdict(deque)
++        self._lock = threading.Lock()
++
++    def _recent(self, key: str, now: float) -> deque[float]:
++        failures = self._failures[key]
++        while failures and now - failures[0] > self.window_seconds:
++            failures.popleft()
++        return failures
++
++    def is_blocked(self, key: str) -> bool:
++        with self._lock:
++            failures = self._recent(key, time.monotonic())
++            if not failures:
++                self._failures.pop(key, None)
++            return len(failures) >= self.max_failures
++
++    def record_failure(self, key: str) -> None:
++        with self._lock:
++            now = time.monotonic()
++            self._recent(key, now).append(now)
++
++    def reset(self, key: str | None = None) -> None:
++        with self._lock:
++            if key is None:
++                self._failures.clear()
++            else:
++                self._failures.pop(key, None)
++
++
++_settings = get_settings()
++login_limiter = LoginRateLimiter(
++    max_failures=_settings.login_max_failed_attempts,
++    window_seconds=_settings.login_lockout_seconds,
++)
+diff --git a/docs/SECURITY.md b/docs/SECURITY.md
+index 29cd0ba..064fd67 100644
+--- a/docs/SECURITY.md
++++ b/docs/SECURITY.md
+@@ -1,5 +1,18 @@
+ # Security baseline
+ 
+-Keep secrets outside source control and replace the development JWT secret before deployment. Passwords are hashed with Argon2 through pwdlib. Public registration only assigns the farmer role; privileged roles require a separate administrative process. Add authorization and organization isolation to every protected business endpoint as those modules are introduced. Use HTTPS, trusted CORS origins, upload validation, authentication rate limits, backups and tested restoration. Never log passwords or bearer tokens.
++## Implemented
++- Passwords are hashed with Argon2 through pwdlib. Login does equal work for unknown accounts to limit timing-based account discovery.
++- JWT bearer tokens (HS256) carry the user ID, require `exp` and `sub`, and are rejected when the user is missing or deactivated.
++- The app refuses to start outside development with the built-in dev secret, a placeholder or short (<32 character) `SECRET_KEY`, `DEBUG=true`, or a wildcard in `CORS_ORIGINS`.
++- Public registration only assigns the farmer role and rejects unknown fields such as `role`. Privileged roles require a separate administrative process. `require_roles(...)` guards role-restricted endpoints.
++- Failed logins are rate limited per client address and email (default 5 per 15 minutes, then HTTP 429). The limiter is in memory and per process; use a shared store such as Redis when running several workers or replicas.
++- CORS allows only the origins in `CORS_ORIGINS`. Responses carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`, and `/api/` responses are `Cache-Control: no-store`. Interactive API docs are served only in development.
++- `/health` returns HTTP 503 when the database is unreachable. The container runs as a non-root user with a health check, and CI runs with read-only repository permissions.
+ 
+-This initial baseline is not a completed security audit.
++## Still to do
++- Keep secrets outside source control and generate a unique `SECRET_KEY` for every deployment.
++- Add authorization and organization isolation to every protected business endpoint as those modules are introduced.
++- Use HTTPS, upload validation, database migrations, backups and tested restoration. When running behind a reverse proxy, make client IP detection trust only that proxy.
++- Never log passwords or bearer tokens.
++
++This baseline is not a completed security audit.
+diff --git a/pyproject.toml b/pyproject.toml
+index 5cb25b9..8978cc8 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -18,3 +18,8 @@ testpaths=["tests"]
+ [tool.ruff]
+ line-length=100
+ target-version="py311"
++src=["backend","tests"]
++[tool.ruff.lint]
++select=["E","F","I","B","UP","BLE"]
++[tool.ruff.lint.flake8-bugbear]
++extend-immutable-calls=["fastapi.Depends","fastapi.Security"]
+diff --git a/tests/conftest.py b/tests/conftest.py
+new file mode 100644
+index 0000000..c39fc2e
+--- /dev/null
++++ b/tests/conftest.py
+@@ -0,0 +1,43 @@
++import pytest
++from fastapi.testclient import TestClient
++from sqlalchemy.orm import sessionmaker
++
++from app.db import Base, build_engine, get_db
++from app.main import app
++from app.security import login_limiter
++
++
++@pytest.fixture(autouse=True)
++def _reset_login_limiter():
++    login_limiter.reset()
++    yield
++    login_limiter.reset()
++
++
++@pytest.fixture
++def session_factory(tmp_path):
++    engine = build_engine(f"sqlite:///{tmp_path / 'test.db'}")
++    Base.metadata.create_all(bind=engine)
++    yield sessionmaker(bind=engine, autoflush=False, autocommit=False)
++    Base.metadata.drop_all(bind=engine)
++    engine.dispose()
++
++
++@pytest.fixture
++def db_override(session_factory):
++    def override_db():
++        db = session_factory()
++        try:
++            yield db
++        finally:
++            db.close()
++
++    return override_db
++
++
++@pytest.fixture
++def client(db_override):
++    app.dependency_overrides[get_db] = db_override
++    with TestClient(app) as test_client:
++        yield test_client
++    app.dependency_overrides.clear()
+diff --git a/tests/test_api.py b/tests/test_api.py
+index 6b4a051..62bee8d 100644
+--- a/tests/test_api.py
++++ b/tests/test_api.py
+@@ -1,38 +1,203 @@
+-import pytest
++from datetime import UTC, datetime, timedelta
++
++import jwt
++from fastapi import Depends, FastAPI
+ from fastapi.testclient import TestClient
+-from sqlalchemy.orm import sessionmaker
+-from app.db import Base, build_engine, get_db
++from sqlalchemy.exc import OperationalError
++
++from app.core.config import get_settings
++from app.db import get_db
++from app.dependencies import require_roles
+ from app.main import app
++from app.models import User
++from app.security import create_access_token, hash_password
++
++REGISTER = "/api/v1/auth/register"
++LOGIN = "/api/v1/auth/login"
++ME = "/api/v1/auth/me"
++PASSWORD = "secure-pass-123"
++
++
++def user_data(email="farmer@example.com"):
++    return {"email": email, "full_name": "Amina Farmer", "password": PASSWORD}
++
++
++def register_and_login(client, email="farmer@example.com"):
++    assert client.post(REGISTER, json=user_data(email)).status_code == 201
++    response = client.post(LOGIN, json={"email": email, "password": PASSWORD})
++    assert response.status_code == 200
++    return response.json()["access_token"]
++
++
++def bearer(token):
++    return {"Authorization": f"Bearer {token}"}
++
++
++def make_token(subject, *, expires_in=timedelta(minutes=5), key=None):
++    now = datetime.now(UTC)
++    payload = {"sub": subject, "iat": now, "exp": now + expires_in}
++    return jwt.encode(payload, key or get_settings().secret_key, algorithm="HS256")
++
++
++def test_health_ok(client):
++    response = client.get("/health")
++    assert response.status_code == 200
++    assert response.json() == {"status": "ok", "database": "ok"}
++
+ 
+-@pytest.fixture
+-def client(tmp_path):
+-    engine = build_engine(f"sqlite:///{tmp_path / 'test.db'}")
+-    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+-    Base.metadata.create_all(bind=engine)
+-    def override_db():
+-        db = factory()
+-        try: yield db
+-        finally: db.close()
+-    app.dependency_overrides[get_db] = override_db
+-    with TestClient(app) as test_client:
+-        yield test_client
+-    app.dependency_overrides.clear(); Base.metadata.drop_all(bind=engine); engine.dispose()
+-
+-def test_health(client):
++def test_health_returns_503_when_database_is_down(client):
++    class BrokenSession:
++        def execute(self, *args, **kwargs):
++            raise OperationalError("SELECT 1", {}, Exception("database unavailable"))
++
++    app.dependency_overrides[get_db] = lambda: BrokenSession()
+     response = client.get("/health")
+-    assert response.status_code == 200 and response.json()["status"] == "ok"
++    assert response.status_code == 503
++    assert response.json()["status"] == "degraded"
++
+ 
+ def test_register_duplicate_login_me(client):
+-    data = {"email":"farmer@example.com", "full_name":"Amina Farmer", "password":"secure-pass-123"}
+-    assert client.post("/api/v1/auth/register", json=data).status_code == 201
+-    assert client.post("/api/v1/auth/register", json=data).status_code == 409
+-    login = client.post("/api/v1/auth/login", json={"email":"FARMER@example.com", "password":data["password"]})
++    data = user_data()
++    assert client.post(REGISTER, json=data).status_code == 201
++    assert client.post(REGISTER, json=data).status_code == 409
++    login = client.post(LOGIN, json={"email": "FARMER@example.com", "password": PASSWORD})
+     assert login.status_code == 200
+-    token = login.json()["access_token"]
+-    profile = client.get("/api/v1/auth/me", headers={"Authorization":f"Bearer {token}"})
+-    assert profile.status_code == 200 and profile.json()["role"] == "farmer"
++    profile = client.get(ME, headers=bearer(login.json()["access_token"]))
++    assert profile.status_code == 200
++    assert profile.json()["role"] == "farmer"
++    assert "password" not in profile.text
++
++
++def test_register_rejects_role_field(client):
++    response = client.post(REGISTER, json={**user_data(), "role": "admin"})
++    assert response.status_code == 422
++
++
++def test_register_rejects_short_password(client):
++    response = client.post(REGISTER, json={**user_data(), "password": "short"})
++    assert response.status_code == 422
++
+ 
+ def test_wrong_password(client):
+-    client.post("/api/v1/auth/register", json={"email":"buyer@example.com", "full_name":"Buyer Person", "password":"secure-pass-123"})
+-    response = client.post("/api/v1/auth/login", json={"email":"buyer@example.com", "password":"wrong-password"})
++    client.post(REGISTER, json=user_data("buyer@example.com"))
++    response = client.post(LOGIN, json={"email": "buyer@example.com", "password": "wrong-password"})
++    assert response.status_code == 401
++
++
++def test_unknown_user_gets_same_error_as_wrong_password(client):
++    client.post(REGISTER, json=user_data("buyer@example.com"))
++    wrong = client.post(LOGIN, json={"email": "buyer@example.com", "password": "wrong-password"})
++    unknown = client.post(LOGIN, json={"email": "nobody@example.com", "password": "wrong-password"})
++    assert unknown.status_code == wrong.status_code == 401
++    assert unknown.json() == wrong.json()
++
++
++def test_me_requires_token(client):
++    assert client.get(ME).status_code == 401
++
++
++def test_garbage_token_rejected(client):
++    assert client.get(ME, headers=bearer("not-a-jwt")).status_code == 401
++
++
++def test_expired_token_rejected(client):
++    register_and_login(client)
++    expired = make_token("1", expires_in=timedelta(minutes=-1))
++    assert client.get(ME, headers=bearer(expired)).status_code == 401
++
++
++def test_token_signed_with_wrong_key_rejected(client):
++    register_and_login(client)
++    forged = make_token("1", key="x" * 40)
++    assert client.get(ME, headers=bearer(forged)).status_code == 401
++
++
++def test_token_with_non_numeric_subject_rejected(client):
++    register_and_login(client)
++    token = make_token("farmer@example.com")
++    assert client.get(ME, headers=bearer(token)).status_code == 401
++
++
++def test_token_without_expiry_rejected(client):
++    register_and_login(client)
++    token = jwt.encode({"sub": "1"}, get_settings().secret_key, algorithm="HS256")
++    assert client.get(ME, headers=bearer(token)).status_code == 401
++
++
++def test_deactivated_user_loses_access(client, session_factory):
++    token = register_and_login(client)
++    assert client.get(ME, headers=bearer(token)).status_code == 200
++    with session_factory() as db:
++        user = db.query(User).filter(User.email == "farmer@example.com").one()
++        user.is_active = False
++        db.commit()
++    assert client.get(ME, headers=bearer(token)).status_code == 401
++    response = client.post(LOGIN, json={"email": "farmer@example.com", "password": PASSWORD})
+     assert response.status_code == 401
++
++
++def test_login_is_rate_limited_after_repeated_failures(client):
++    client.post(REGISTER, json=user_data())
++    bad = {"email": "farmer@example.com", "password": "wrong-password"}
++    for _ in range(get_settings().login_max_failed_attempts):
++        assert client.post(LOGIN, json=bad).status_code == 401
++    blocked = client.post(LOGIN, json=bad)
++    assert blocked.status_code == 429
++    assert "retry-after" in blocked.headers
++    # Even the correct password is refused while locked out.
++    good = {"email": "farmer@example.com", "password": PASSWORD}
++    assert client.post(LOGIN, json=good).status_code == 429
++
++
++def test_successful_login_resets_failure_count(client):
++    client.post(REGISTER, json=user_data())
++    bad = {"email": "farmer@example.com", "password": "wrong-password"}
++    good = {"email": "farmer@example.com", "password": PASSWORD}
++    almost = get_settings().login_max_failed_attempts - 1
++    for _ in range(almost):
++        assert client.post(LOGIN, json=bad).status_code == 401
++    assert client.post(LOGIN, json=good).status_code == 200
++    for _ in range(almost):
++        assert client.post(LOGIN, json=bad).status_code == 401
++
++
++def test_require_roles_enforces_role(session_factory, db_override):
++    probe = FastAPI()
++    admin_required = Depends(require_roles("admin"))
++
++    @probe.get("/admin-only")
++    def admin_only(user: User = admin_required):
++        return {"email": user.email}
++
++    probe.dependency_overrides[get_db] = db_override
++    with session_factory() as db:
++        admin = User(email="a@example.com", full_name="Admin", role="admin",
++                     password_hash=hash_password(PASSWORD))
++        farmer = User(email="f@example.com", full_name="Farmer", role="farmer",
++                      password_hash=hash_password(PASSWORD))
++        db.add_all([admin, farmer])
++        db.commit()
++        admin_token = create_access_token(str(admin.id))
++        farmer_token = create_access_token(str(farmer.id))
++    with TestClient(probe) as probe_client:
++        assert probe_client.get("/admin-only", headers=bearer(farmer_token)).status_code == 403
++        allowed = probe_client.get("/admin-only", headers=bearer(admin_token))
++        assert allowed.status_code == 200
++        assert probe_client.get("/admin-only").status_code == 401
++
++
++def test_security_headers_present(client):
++    response = client.get("/health")
++    assert response.headers["x-content-type-options"] == "nosniff"
++    assert response.headers["x-frame-options"] == "DENY"
++    assert response.headers["referrer-policy"] == "no-referrer"
++    api_response = client.post(LOGIN, json={"email": "x@example.com", "password": "whatever"})
++    assert api_response.headers["cache-control"] == "no-store"
++
++
++def test_cors_allows_configured_origin_only(client):
++    request_headers = {"Access-Control-Request-Method": "POST"}
++    allowed = client.options(LOGIN, headers={**request_headers, "Origin": "http://localhost:3000"})
++    assert allowed.headers.get("access-control-allow-origin") == "http://localhost:3000"
++    denied = client.options(LOGIN, headers={**request_headers, "Origin": "https://evil.example"})
++    assert "access-control-allow-origin" not in denied.headers
+diff --git a/tests/test_config.py b/tests/test_config.py
+new file mode 100644
+index 0000000..c90da06
+--- /dev/null
++++ b/tests/test_config.py
+@@ -0,0 +1,47 @@
++import pytest
++
++from app.core.config import DEV_SECRET_KEY, Settings
++
++GOOD_SECRET = "k8Qz3v9Lw2Xr7Tn5Bd1Hs6Jp4Mc0Yf8A"
++
++
++def build(**overrides):
++    return Settings(_env_file=None, **overrides)
++
++
++def test_development_allows_default_secret():
++    settings = build(environment="development")
++    assert settings.secret_key == DEV_SECRET_KEY
++    assert len(settings.secret_key) >= 32
++
++
++def test_production_rejects_default_secret():
++    with pytest.raises(ValueError, match="SECRET_KEY"):
++        build(environment="production")
++
++
++def test_production_rejects_short_secret():
++    with pytest.raises(ValueError, match="SECRET_KEY"):
++        build(environment="production", secret_key="too-short")
++
++
++def test_production_rejects_placeholder_secret():
++    placeholder = "replace-with-a-long-random-secret-before-deployment"
++    with pytest.raises(ValueError, match="SECRET_KEY"):
++        build(environment="production", secret_key=placeholder)
++
++
++def test_production_rejects_debug_and_wildcard_cors():
++    with pytest.raises(ValueError, match="DEBUG"):
++        build(environment="production", secret_key=GOOD_SECRET, debug=True)
++    with pytest.raises(ValueError, match="CORS_ORIGINS"):
++        build(environment="production", secret_key=GOOD_SECRET, cors_origins="*")
++
++
++def test_production_accepts_safe_configuration():
++    settings = build(
++        environment="production",
++        secret_key=GOOD_SECRET,
++        cors_origins="https://app.example.com, https://admin.example.com",
++    )
++    assert settings.cors_origin_list == ["https://app.example.com", "https://admin.example.com"]
+-- 
+2.43.0
+

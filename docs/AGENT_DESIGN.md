@@ -1,26 +1,27 @@
-# Agent design and first implemented workflow
+# Agent design and first implemented workflows
 
-## Implemented: Workflow 1
+## Workflow 1
+Farmer Agent → Trust Agent → Buyer Matching Agent → Orchestrator.
 
-The first vertical slice runs as a modular, synchronous workflow:
+- Farmer Agent validates and normalizes structured crop offers.
+- Trust Agent checks completeness and verification state.
+- Buyer Matching Agent compares persisted, approved buyer requirements.
+- Orchestrator persists workflow runs, tasks, candidates and traceable results.
 
-Farmer Agent → Trust Agent → Buyer Matching Agent → Orchestrator
+## Farmer Activity & Evidence Ledger
+The ledger is a capability owned by the Farmer Agent, not a separate autonomous agent in the MVP. It records farm profiles, seasons, activities, evidence references and farmer-consented report sharing. Deterministic API services validate ownership, dates, amounts, access scope and permissions. The future conversational Farmer Agent may extract candidate fields from WhatsApp text, voice notes and photos, but must ask the farmer to confirm before persistence.
 
-- **Farmer Agent:** validates and normalizes structured crop, quantity, unit, quality, location, availability and optional asking-price fields.
-- **Trust Agent:** records schema checks and verification warnings. No verification is inferred from registration; the current workflow reports identity as unverified.
-- **Buyer Matching Agent:** reads active buyer requirements from the database, checks crop and quantity compatibility, compares coarse location labels, and checks quality terms. It does not invent buyers or demand.
-- **Orchestrator:** persists the listing, workflow run, per-agent task inputs/outputs and ranked match candidates, then returns a traceable result.
+Trust integration:
+- Self-reported activity remains self-reported.
+- Attached evidence changes the activity evidence confidence to document-supported; it does not prove authenticity.
+- Only an authorised human reviewer can record independent verification, with a reason and audit event.
 
-## Safety and current limitations
-
-- Listings remain pending_review; can_publish and can_contact_buyer remain false.
-- Match scores are internal heuristic rankings, not guarantees or verified commercial matches.
-- Crop aliases and kg/tonne conversions are intentionally small and explicit.
-- Location comparison is text overlap only; it is not distance or transport feasibility.
-- Price is not scored because price basis (per kg, tonne, lot, etc.) is not yet captured.
-- The buyer-requirement API is authenticated, but buyer-role enforcement and buyer account onboarding remain follow-up work.
-- The current workflow is synchronous. Durable queueing, bounded retries, timeouts, idempotency keys and human approval records are future hardening work.
+## Safety boundaries
+- No external buyer contact, publication, payment or binding commitment is initiated by the workflow.
+- Farmer records are private unless the farmer creates a time-limited share grant.
+- Shared reports are scoped to one season or all seasons, carry a stated recipient and purpose, expire, can be revoked, and record access.
+- Do not infer land ownership, income, yield, eligibility or creditworthiness from incomplete records.
+- Reports support applications; they do not guarantee loan or grant approval.
 
 ## Planned specialist agents
-
-Market Intelligence, Logistics, Storage and expanded Trust & Transaction capabilities follow after the first workflow is tested with real pilot data. Agents must use typed inputs/outputs, cite evidence and timestamps for external facts, and escalate consequential actions for human approval.
+Market Intelligence, Logistics, Storage and expanded Trust & Transaction capabilities follow after real pilot data. Agents must use typed inputs/outputs, cite external evidence and timestamps, and escalate consequential actions for human approval.

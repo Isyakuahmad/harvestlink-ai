@@ -39,6 +39,9 @@ def list_verification_cases(
         subject = None
         if case.subject_type == "user":
             subject = db.query(User).filter(User.id == case.subject_id).first()
+            buyer_profile = (
+                db.query(BuyerProfile).filter(BuyerProfile.user_id == case.subject_id).first()
+            )
         elif case.subject_type == "listing":
             subject = db.query(ProduceListing).filter(ProduceListing.id == case.subject_id).first()
         output.append({
@@ -49,7 +52,13 @@ def list_verification_cases(
             "submitted_by": submitted_by.email if submitted_by else None,
             "subject": (
                 {"email": subject.email, "full_name": subject.full_name,
-                 "role": subject.role, "verification_status": subject.verification_status}
+                 "role": subject.role, "verification_status": subject.verification_status,
+                 "buyer_profile": (
+                     {"organization_name": buyer_profile.organization_name,
+                      "buyer_type": buyer_profile.buyer_type, "phone": buyer_profile.phone,
+                      "location": buyer_profile.location}
+                     if case.subject_type == "user" and buyer_profile else None
+                 )}
                 if case.subject_type == "user" and subject else
                 {"crop_name": subject.crop_name, "quantity": subject.quantity,
                  "unit": subject.unit, "location": subject.location, "status": subject.status}
@@ -115,3 +124,24 @@ def decide_verification_case(
         "review_reason": case.review_reason,
         "reviewed_at": case.reviewed_at,
     }
+
+ 
+@router.get("/audit-logs")
+def list_audit_logs(
+    db: DatabaseSession,
+    admin: AdminUser,
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    entries = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": entry.id,
+            "actor_user_id": entry.actor_user_id,
+            "action": entry.action,
+            "subject_type": entry.subject_type,
+            "subject_id": entry.subject_id,
+            "details": entry.details_json,
+            "created_at": entry.created_at,
+        }
+        for entry in entries
+    ]

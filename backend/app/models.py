@@ -135,3 +135,88 @@ class AuditLog(Base):
     subject_id: Mapped[int] = mapped_column(Integer, nullable=False)
     details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmProfile(Base):
+    __tablename__ = "farm_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    farm_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    location: Mapped[str] = mapped_column(String(180), nullable=False)
+    acreage: Mapped[float] = mapped_column(Float, nullable=False)
+    acreage_unit: Mapped[str] = mapped_column(String(20), default="hectare", nullable=False)
+    land_access: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmSeason(Base):
+    __tablename__ = "farm_seasons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    farm_profile_id: Mapped[int] = mapped_column(ForeignKey("farm_profiles.id"), index=True, nullable=False)
+    crop_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    season_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    planted_area: Mapped[float] = mapped_column(Float, nullable=False)
+    area_unit: Mapped[str] = mapped_column(String(20), default="hectare", nullable=False)
+    planting_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_harvest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmActivity(Base):
+    __tablename__ = "farm_activities"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    season_id: Mapped[int] = mapped_column(ForeignKey("farm_seasons.id"), index=True, nullable=False)
+    activity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    activity_date: Mapped[date] = mapped_column(Date, nullable=False)
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quantity_unit: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    source_channel: Mapped[str] = mapped_column(String(20), default="web", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmEvidence(Base):
+    __tablename__ = "farm_evidence"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    activity_id: Mapped[int] = mapped_column(ForeignKey("farm_activities.id"), index=True, nullable=False)
+    evidence_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    evidence_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    verification_level: Mapped[str] = mapped_column(String(30), default="document_supported", nullable=False)
+    verified_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    verification_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmShareGrant(Base):
+    __tablename__ = "farm_share_grants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    season_id: Mapped[int | None] = mapped_column(ForeignKey("farm_seasons.id"), nullable=True)
+    recipient_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    recipient_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(300), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmShareAccess(Base):
+    __tablename__ = "farm_share_accesses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    grant_id: Mapped[int] = mapped_column(ForeignKey("farm_share_grants.id"), index=True, nullable=False)
+    accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    access_type: Mapped[str] = mapped_column(String(30), default="report_view", nullable=False)

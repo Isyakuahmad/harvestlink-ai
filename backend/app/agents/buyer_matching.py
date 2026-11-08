@@ -50,7 +50,7 @@ def rank_requirement(offer: dict, requirement) -> MatchResult:
 
     score = 30.0
     reasons.append("Crop matches")
-    score += 20
+    score += 25
     reasons.append("Quantity is within the buyer's stated range")
 
     if _same_area(offer["location"], requirement.location):
@@ -61,35 +61,19 @@ def rank_requirement(offer: dict, requirement) -> MatchResult:
 
     required_quality = requirement.quality_requirements.lower().strip()
     offered_quality = offer["quality_description"].lower()
-    if not required_quality:
-        score += 20
+    quality_terms = [term for term in required_quality.split() if len(term) > 2]
+    if not quality_terms:
+        score += 25
         reasons.append("Buyer has not specified additional quality criteria")
-    elif all(term in offered_quality for term in required_quality.split() if len(term) > 3):
-        score += 20
+    elif all(term in offered_quality for term in quality_terms):
+        score += 25
         reasons.append("Offer description contains the buyer's quality terms")
     else:
         reasons.append("Quality requirements need manual confirmation")
 
-    asking_price = offer.get("asking_price")
-    if (
-        asking_price is not None
-        and requirement.max_price is not None
-        and offer.get("currency")
-        and offer.get("currency") == requirement.currency
-    ):
-        if asking_price <= requirement.max_price:
-            score += 10
-            reasons.append("Asking price is within the buyer's stated limit")
-        else:
-            return MatchResult(
-                buyer_requirement_id=requirement.id,
-                score=0,
-                eligible=False,
-                reasons=["Asking price exceeds the buyer's stated limit"],
-            )
-    else:
-        reasons.append("Price compatibility is unknown or not comparable")
-
+    reasons.append(
+        "Price was not scored because a comparable price unit and basis are not yet captured"
+    )
     return MatchResult(
         buyer_requirement_id=requirement.id,
         score=round(score, 2),

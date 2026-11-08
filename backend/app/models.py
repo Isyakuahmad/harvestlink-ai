@@ -20,6 +20,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(30), default="farmer", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    verification_status: Mapped[str] = mapped_column(String(20), default="unverified", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -95,4 +96,42 @@ class MatchCandidate(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     eligible: Mapped[bool] = mapped_column(Boolean, nullable=False)
     reasons_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class BuyerProfile(Base):
+    __tablename__ = "buyer_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    organization_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    buyer_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    phone: Mapped[str] = mapped_column(String(30), nullable=False)
+    location: Mapped[str] = mapped_column(String(180), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class VerificationCase(Base):
+    __tablename__ = "verification_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    subject_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    submitted_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    subject_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    subject_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

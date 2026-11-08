@@ -3,10 +3,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import User
-from app.schemas import TokenResponse, UserLogin, UserPublic, UserRegister
+from app.models import BuyerProfile, User, VerificationCase
+from app.schemas import BuyerRegister, TokenResponse, UserLogin, UserPublic, UserRegister
 from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -14,22 +15,60 @@ DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-@router.post("/register", response_model=UserPublic, status_code=201)
-def register(payload: UserRegister, db: DatabaseSession):
-    email = payload.email.lower()
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(
-            status_code=409,
-            detail="An account with this email already exists",
-        )
+def _admin_emails() -> set[str]:
+    return {
+        item.strip().lower()
+        for item in get_settings().admin_emails.split(",")
+        if item.strip()
+    }
 
+
+def _create_user(db: Session, email: str, full_name: str, password: str, role: str) -> User:
+    normalized_email = email.lower()
+    if db.query(User).filter(User.email == normalized_email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = User(
-        email=email,
-        full_name=payload.full_name.strip(),
-        password_hash=hash_password(payload.password),
-        role="farmer",
+        email=normalized_email,
+        full_name=full_name.strip(),
+        password_hash=hash_password(password),
+        role="admin" if normalized_email in _admin_emails() else role,
+        verification_status="unverified",
     )
     db.add(user)
+    db.flush()
+    if user.role != "admin":
+        db.add(
+            VerificationCase(
+                subject_type="user",
+                subject_id=user.id,
+                submitted_by_user_id=user.id,
+                status="pending",
+            )
+        )
+    return user
+
+
+@router.post("/register", response_model=UserPublic, status_code=201)
+def register(payload: UserRegister, db: DatabaseSession):
+    user = _create_user(db, str(payload.email), payload.full_name, payload.password, "farmer")
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/register/buyer", response_model=UserPublic, status_code=201)
+def register_buyer(payload: BuyerRegister, db: DatabaseSession):
+    user = _create_user(db, str(payload.email), payload.full_name, payload.password, "buyer")
+    if user.role != "admin":
+        db.add(
+            BuyerProfile(
+                user_id=user.id,
+                organization_name=payload.organization_name.strip(),
+                buyer_type=payload.buyer_type.strip().lower(),
+                phone=payload.phone.strip(),
+                location=payload.location.strip(),
+            )
+        )
     db.commit()
     db.refresh(user)
     return user
@@ -44,6 +83,9 @@ def login(payload: UserLogin, db: DatabaseSession):
         or not verify_password(payload.password, user.password_hash)
     ):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if user.email in _admin_emails() and user.role != "admin":
+        user.role = "admin"
+        db.commit()
     return TokenResponse(access_token=create_access_token(user.email))
 
 

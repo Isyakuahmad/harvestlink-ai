@@ -25,6 +25,9 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "workflow_runs",
             "agent_tasks",
             "match_candidates",
+            "buyer_profiles",
+            "verification_cases",
+            "audit_logs",
             "alembic_version",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))
@@ -37,6 +40,7 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "password_hash",
             "role",
             "is_active",
+            "verification_status",
             "created_at",
         }
 

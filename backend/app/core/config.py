@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 30
     cors_origins: str = "http://localhost:3000"
+    admin_emails: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -55,3 +56,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

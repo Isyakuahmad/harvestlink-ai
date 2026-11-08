@@ -8,7 +8,10 @@ from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
     engine = build_engine(f"sqlite:///{tmp_path / 'workflow.db'}")
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
@@ -26,14 +29,43 @@ def client(tmp_path):
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
+    get_settings.cache_clear()
 
 
 def register_and_login(client, email, full_name):
-    payload = {"email": email, "full_name": full_name, "password": "secure-pass-123"}
-    assert client.post("/api/v1/auth/register", json=payload).status_code == 201
+    password = "secure-pass-123"
+    if full_name.startswith("Buyer"):
+        response = client.post("/api/v1/auth/register/buyer", json={
+            "email": email, "full_name": full_name, "password": password,
+            "organization_name": "Test Buyer Ltd", "buyer_type": "processor",
+            "phone": "+2348000000000", "location": "Nasarawa",
+        })
+        assert response.status_code == 201, response.text
+        admin_registration = client.post("/api/v1/auth/register", json={
+            "email": "admin@example.com", "full_name": "Test Admin", "password": password,
+        })
+        assert admin_registration.status_code in {201, 409}
+        admin_login = client.post("/api/v1/auth/login", json={
+            "email": "admin@example.com", "password": password,
+        })
+        admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+        queue = client.get("/api/v1/admin/verification-cases", headers=admin_headers)
+        buyer_case = next(
+            item for item in queue.json()
+            if item["subject_type"] == "user" and item["subject"]["email"] == email
+        )
+        approved = client.post(
+            f"/api/v1/admin/verification-cases/{buyer_case['id']}/decision",
+            headers=admin_headers,
+            json={"decision": "approve", "reason": "Test buyer verified"},
+        )
+        assert approved.status_code == 200, approved.text
+    else:
+        payload = {"email": email, "full_name": full_name, "password": password}
+        assert client.post("/api/v1/auth/register", json=payload).status_code == 201
     response = client.post(
         "/api/v1/auth/login",
-        json={"email": email, "password": payload["password"]},
+        json={"email": email, "password": password},
     )
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 

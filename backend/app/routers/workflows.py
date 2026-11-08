@@ -11,7 +11,9 @@ from app.agents.schemas import (
 )
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import (\n    AgentTask, AuditLog, BuyerRequirement, ProduceListing, User, VerificationCase, WorkflowRun,\n)
+from app.models import (
+    AgentTask, AuditLog, BuyerRequirement, ProduceListing, User, VerificationCase, WorkflowRun,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["marketplace workflow"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -72,7 +74,18 @@ def submit_produce_offer(
 ):
     if user.role != "farmer":
         raise HTTPException(status_code=403, detail="Only farmer accounts can submit offers")
-    result = execute_offer_workflow(db, user.id, payload)\n    db.add(VerificationCase(\n        subject_type="listing", subject_id=result.listing_id,\n        submitted_by_user_id=user.id, status="pending",\n    ))\n    db.add(AuditLog(\n        actor_user_id=user.id, action="listing.submitted_for_review",\n        subject_type="produce_listing", subject_id=result.listing_id,\n        details_json={"workflow_run_id": result.workflow_run_id},\n    ))\n    db.commit()\n    return result
+    result = execute_offer_workflow(db, user.id, payload)
+    db.add(VerificationCase(
+        subject_type="listing", subject_id=result.listing_id,
+        submitted_by_user_id=user.id, status="pending",
+    ))
+    db.add(AuditLog(
+        actor_user_id=user.id, action="listing.submitted_for_review",
+        subject_type="produce_listing", subject_id=result.listing_id,
+        details_json={"workflow_run_id": result.workflow_run_id},
+    ))
+    db.commit()
+    return result
 
 
 @router.get("/workflows/{workflow_run_id}")

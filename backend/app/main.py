@@ -7,12 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
+from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.workflows import router as workflows_router
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="0.2.0", debug=settings.debug)
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(workflows_router)
 DatabaseSession = Annotated[Session, Depends(get_db)]
 

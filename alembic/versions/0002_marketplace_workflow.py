@@ -6,8 +6,9 @@ Revises: 0001_initial_users
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "0002_marketplace_workflow"
 down_revision: str | None = "0001_initial_users"

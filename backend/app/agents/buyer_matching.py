@@ -1,6 +1,5 @@
 from app.agents.schemas import MatchResult
 
-
 CROP_ALIASES = {"corn": "maize", "maize": "maize", "paddy rice": "rice"}
 
 

@@ -7,7 +7,14 @@ from app.agents.buyer_matching import find_matches
 from app.agents.farmer import structure_offer
 from app.agents.schemas import ProduceOfferInput, WorkflowResponse
 from app.agents.trust import assess_listing
-from app.models import AgentTask, BuyerRequirement, MatchCandidate, ProduceListing, User, WorkflowRun
+from app.models import (
+    AgentTask,
+    BuyerRequirement,
+    MatchCandidate,
+    ProduceListing,
+    User,
+    WorkflowRun,
+)
 
 
 def _record_task(db: Session, run_id: int, name: str, task_input: dict, output: dict) -> None:

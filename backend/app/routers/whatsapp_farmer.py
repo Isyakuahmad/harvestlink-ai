@@ -16,8 +16,13 @@ from app.core.config import get_settings
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import (
-    FarmerPendingEntry, FarmActivity, FarmSeason, PlantHealthCase, User,
-    WhatsAppChannelLink, WhatsAppInboundMessage,
+    FarmActivity,
+    FarmerPendingEntry,
+    FarmSeason,
+    PlantHealthCase,
+    User,
+    WhatsAppChannelLink,
+    WhatsAppInboundMessage,
 )
 
 router = APIRouter(tags=["WhatsApp Farmer Agent", "plant health", "climate"])
@@ -391,7 +396,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     "caterpillar", "insect", "worm", "blight", "rot", "curl", "mosaic",
                 ))
                 if symptoms and any(word in text_body.lower() for word in ("leaf", "leaves", "plant", "crop", "maize", "cassava", "rice", "tomato", "pepper")):
-                    crop_match = re.search(r"\b(maize|corn|cassava|rice|tomato|pepper|yam|sorghum|millet|soybean|groundnut|beans)\b", text_body, re.I)
+                    crop_match = re.search(r"\b(maize|corn|cassava|rice|tomato|pepper|yam|sorghum|millet|soybean|groundnut|beans)\b", text_body, re.IGNORECASE)
                     crop = crop_match.group(1).lower() if crop_match else "unspecified"
                     guidance = _ipm_guidance(text_body)
                     case = PlantHealthCase(

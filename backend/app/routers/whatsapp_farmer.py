@@ -35,7 +35,7 @@ class PlantHealthReport(BaseModel):
     symptoms: str = Field(min_length=5, max_length=3000)
     affected_area_percent: float | None = Field(default=None, ge=0, le=100)
     severity: str = Field(default="unknown", pattern="^(low|moderate|high|unknown)$")
-    image_url: str | None = Field(default=None, max_length=2000)
+    photo_uri: str | None = Field(default=None, max_length=2000)
 
 
 def _hash(value: str) -> str:
@@ -304,7 +304,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     FarmerPendingEntry.farmer_user_id == link.user_id,
                     FarmerPendingEntry.status == "pending",
                 ).order_by(FarmerPendingEntry.created_at.desc()).first()
-                if text_body.lower() in {"yes", "confirm", "save", "1"} and pending:
+                if pending is not None and pending.expires_at.tzinfo is None:\n                    pending.expires_at = pending.expires_at.replace(tzinfo=UTC)\n                if pending is not None and pending.expires_at <= datetime.now(UTC):\n                    pending.status = "expired"\n                    pending = None\n                if text_body.lower() in {"yes", "confirm", "save", "1"} and pending:
                     entry_data = pending.entry_json
                     activity = FarmActivity(
                         farmer_user_id=link.user_id, season_id=pending.season_id,
@@ -426,7 +426,7 @@ def create_plant_health_case(payload: PlantHealthReport, db: DatabaseSession, us
         farmer_user_id=user.id, crop_name=payload.crop_name,
         farm_location=payload.farm_location, symptoms=payload.symptoms,
         affected_area_percent=payload.affected_area_percent,
-        severity=payload.severity, status="needs_review", guidance_json=guidance,
+        severity=payload.severity, image_uri=payload.photo_uri,\n        status="needs_review", guidance_json=guidance,
     )
     db.add(case)
     db.commit()

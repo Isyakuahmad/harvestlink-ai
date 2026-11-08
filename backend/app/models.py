@@ -220,3 +220,59 @@ class FarmShareAccess(Base):
     grant_id: Mapped[int] = mapped_column(ForeignKey("farm_share_grants.id"), index=True, nullable=False)
     accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     access_type: Mapped[str] = mapped_column(String(30), default="report_view", nullable=False)
+
+
+class WhatsAppChannelLink(Base):
+    __tablename__ = "whatsapp_channel_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True, nullable=False)
+    phone_e164: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    link_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    link_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WhatsAppInboundMessage(Base):
+    __tablename__ = "whatsapp_inbound_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_message_id: Mapped[str] = mapped_column(String(160), unique=True, index=True, nullable=False)
+    from_phone: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
+    message_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="received", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class FarmerPendingEntry(Base):
+    __tablename__ = "farmer_pending_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    season_id: Mapped[int] = mapped_column(ForeignKey("farm_seasons.id"), index=True, nullable=False)
+    entry_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PlantHealthCase(Base):
+    __tablename__ = "plant_health_cases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    crop_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    farm_location: Mapped[str] = mapped_column(String(180), nullable=False)
+    symptoms: Mapped[str] = mapped_column(Text, nullable=False)
+    affected_area_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="unknown", nullable=False)
+    image_media_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="needs_review", nullable=False)
+    guidance_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

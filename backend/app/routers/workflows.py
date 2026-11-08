@@ -11,7 +11,7 @@ from app.agents.schemas import (
 )
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import BuyerRequirement, User, WorkflowRun
+from app.models import BuyerRequirement, ProduceListing, User, WorkflowRun
 
 router = APIRouter(prefix="/api/v1", tags=["marketplace workflow"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -73,7 +73,15 @@ def submit_produce_offer(
 
 @router.get("/workflows/{workflow_run_id}")
 def get_workflow_run(workflow_run_id: int, db: DatabaseSession, user: CurrentUser):
-    run = db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+    run = (
+        db.query(WorkflowRun)
+        .join(ProduceListing, WorkflowRun.listing_id == ProduceListing.id)
+        .filter(
+            WorkflowRun.id == workflow_run_id,
+            ProduceListing.farmer_user_id == user.id,
+        )
+        .first()
+    )
     if run is None:
         raise HTTPException(status_code=404, detail="Workflow run not found")
     return {

@@ -2,12 +2,38 @@
 
 **From Harvest to Market, Intelligently.**
 
-A multi-agent platform concept for coordinating Nigerian agricultural supply chains across farmers/cooperatives, buyers, transporters and storage providers.
+A multi-agent platform for coordinating Nigerian agricultural supply chains across farmers/cooperatives and buyers, with a design that can expand to logistics and storage partners.
 
-## Milestone 1 — Foundation
-Secure FastAPI backend, configuration, SQLAlchemy persistence, registration/login, JWT authentication, tests, Docker and CI. Database schema changes are managed with Alembic migrations. Specialist agents and marketplace workflows are planned, not yet active.
+## Current implementation
+
+### Foundation
+- FastAPI backend, JWT authentication and role-aware access.
+- SQLAlchemy persistence with Alembic migrations.
+- SQLite for local development/tests; PostgreSQL for deployment.
+- Ruff and pytest CI.
+
+### Workflow 1 — Farmer → Trust → Buyer Matching → Orchestrator
+The first executable workflow is available on the feature/agent-workflow-1 branch.
+
+1. A farmer submits a structured produce offer.
+2. Farmer Agent normalizes the offer fields.
+3. Trust Agent records checks and marks identity as unverified until independent verification exists.
+4. Buyer Matching Agent compares the offer with active, persisted buyer requirements.
+5. Orchestrator stores the result and each agent's task trace.
+
+The workflow creates internal match suggestions only. It does not publish listings, contact buyers, or make commercial commitments. Buyer matching uses exact crop normalization, kg/tonne conversion, stated quantity ranges, coarse location overlap and quality-term checks. Price is deliberately not scored until price basis and unit are captured consistently.
+
+### API endpoints
+
+- POST /api/v1/buyer-requirements — authenticated buyer creates a demand requirement.
+- GET /api/v1/buyer-requirements — list the signed-in user's requirements.
+- POST /api/v1/workflows/produce-offers — authenticated farmer submits an offer and runs the complete workflow.
+- GET /api/v1/workflows/{workflow_run_id} — farmer retrieves their own workflow result.
+
+Use the interactive API docs at /docs to try the endpoints. Public registration currently creates farmer accounts; buyer accounts for testing can be assigned the buyer role by an administrator/database operator. The MVP buyer-requirement endpoint is authenticated but not yet restricted to a buyer role.
 
 ## Local setup
+
 Requires Python 3.11+.
 
 ```bash
@@ -30,7 +56,7 @@ Apply all pending migrations:
 alembic upgrade head
 ```
 
-Create a new migration after changing SQLAlchemy models:
+Create a migration after changing SQLAlchemy models:
 
 ```bash
 alembic revision --autogenerate -m "describe the schema change"
@@ -38,7 +64,7 @@ alembic revision --autogenerate -m "describe the schema change"
 
 Review every generated migration before applying it. Autogenerate is a draft, not a substitute for reviewing data preservation, constraints, indexes, defaults and downgrade behavior.
 
-Inspect the current migration:
+Inspect migration state:
 
 ```bash
 alembic current
@@ -51,15 +77,13 @@ Roll back one revision when safe:
 alembic downgrade -1
 ```
 
-For a fresh database, run migrations before starting the API. The application no longer creates database tables on startup. Back up production data before applying migrations; test upgrades and rollbacks against a copy first. Keep database credentials in environment variables and never commit them.
+For a fresh database, run migrations before starting the API. The application does not create database tables on startup. Back up production data before applying migrations; test upgrades and rollbacks against a copy first. Keep database credentials in environment variables and never commit them.
 
 ## Quality checks
 
 ```bash
-pytest
 ruff check .
+pytest
 ```
 
-Endpoints: `GET /health`, `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`.
-
-SQLite is for local development and tests; PostgreSQL is intended for deployment. Never commit credentials. Replace `SECRET_KEY` before deployment. Public registration always assigns the farmer role; administrator access is granted separately.
+Never commit credentials. Replace SECRET_KEY before deployment. Public registration always assigns the farmer role; administrator access is granted separately.

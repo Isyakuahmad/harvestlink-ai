@@ -11,7 +11,7 @@ from app.agents.schemas import (
 )
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import BuyerRequirement, ProduceListing, User, WorkflowRun
+from app.models import AgentTask, BuyerRequirement, ProduceListing, User, WorkflowRun
 
 router = APIRouter(prefix="/api/v1", tags=["marketplace workflow"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -84,9 +84,26 @@ def get_workflow_run(workflow_run_id: int, db: DatabaseSession, user: CurrentUse
     )
     if run is None:
         raise HTTPException(status_code=404, detail="Workflow run not found")
+    tasks = (
+        db.query(AgentTask)
+        .filter(AgentTask.workflow_run_id == run.id)
+        .order_by(AgentTask.id.asc())
+        .all()
+    )
     return {
         "workflow_run_id": run.id,
         "listing_id": run.listing_id,
         "status": run.status,
         "result": run.result_json,
+        "agent_tasks": [
+            {
+                "task_id": task.id,
+                "agent_name": task.agent_name,
+                "status": task.status,
+                "input": task.input_json,
+                "output": task.output_json,
+                "error": task.error_message,
+            }
+            for task in tasks
+        ],
     }

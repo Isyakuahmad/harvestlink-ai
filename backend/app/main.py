@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import models as _models  # Register ORM metadata.
+from app import models as _models  # noqa: F401
 from app.core.config import get_settings
 from app.db import Base, engine, get_db
 from app.routers.auth import router as auth_router

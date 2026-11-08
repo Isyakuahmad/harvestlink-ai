@@ -67,6 +67,7 @@ def decide(client, admin_headers, case_id, decision="approve", reason="Documents
 def test_buyer_onboarding_requires_admin_approval_before_demand(client):
     response = buyer_register(client)
     assert response.status_code == 201, response.text
+    register(client, "admin@example.com", "Admin User")
     buyer_headers = login(client, "buyer@example.com")
     requirement = client.post("/api/v1/buyer-requirements", headers=buyer_headers, json={
         "crop_name": "maize", "min_quantity": 5, "unit": "tonne", "location": "Kano",
@@ -87,6 +88,7 @@ def test_buyer_onboarding_requires_admin_approval_before_demand(client):
 def test_farmer_listing_needs_identity_then_listing_approval(client):
     register(client, "farmer@example.com", "Farmer One")
     farmer_headers = login(client, "farmer@example.com")
+    register(client, "admin@example.com", "Admin User")
     admin = login(client, "admin@example.com")
     offer = client.post("/api/v1/workflows/produce-offers", headers=farmer_headers, json={
         "crop_name": "maize", "quantity": 2, "unit": "tonne",
@@ -114,6 +116,7 @@ def test_farmer_listing_needs_identity_then_listing_approval(client):
 def test_non_admin_cannot_review_and_rejection_is_audited(client):
     register(client, "farmer2@example.com", "Farmer Two")
     farmer_headers = login(client, "farmer2@example.com")
+    register(client, "admin@example.com", "Admin User")
     response = client.get("/api/v1/admin/verification-cases", headers=farmer_headers)
     assert response.status_code == 403
     admin = login(client, "admin@example.com")

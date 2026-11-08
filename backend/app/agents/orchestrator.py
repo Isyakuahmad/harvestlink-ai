@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from app.agents.buyer_matching import find_matches
@@ -15,8 +16,8 @@ def _record_task(db: Session, run_id: int, name: str, task_input: dict, output: 
             workflow_run_id=run_id,
             agent_name=name,
             status="completed",
-            input_json=task_input,
-            output_json=output,
+            input_json=jsonable_encoder(task_input),
+            output_json=jsonable_encoder(output),
             completed_at=datetime.now(UTC),
         )
     )

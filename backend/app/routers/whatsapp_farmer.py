@@ -452,7 +452,7 @@ def list_plant_health_cases(db: DatabaseSession, user: CurrentUser):
     ).order_by(PlantHealthCase.created_at.desc()).all()
     return [{
         "case_id": c.id, "crop_name": c.crop_name, "farm_location": c.farm_location,
-        "symptoms": c.symptoms, "severity": c.severity, "status": c.status,
+        "symptoms": c.symptoms, "severity": c.severity, "status": c.status,\n        "image_uri": c.image_uri, "has_whatsapp_media": c.image_media_id is not None,
         "guidance": c.guidance_json, "created_at": c.created_at,
     } for c in cases]
 

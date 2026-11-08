@@ -253,7 +253,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
             for message in value.get("messages", []):
                 provider_id = message.get("id")
                 sender = _normal_phone(str(message.get("from", "")))
-                if not provider_id or not sender:
+                if not provider_id or not re.fullmatch(r"\+?[1-9][0-9]{7,14}", sender):
                     continue
                 if db.query(WhatsAppInboundMessage).filter(
                     WhatsAppInboundMessage.provider_message_id == provider_id

@@ -32,6 +32,10 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_buyer_profiles_user_id", "buyer_profiles", ["user_id"])
+    op.execute(
+        "INSERT INTO verification_cases (subject_type, subject_id, submitted_by_user_id, status, created_at) "
+        "SELECT 'user', id, id, 'pending', CURRENT_TIMESTAMP FROM users WHERE role IN ('farmer', 'buyer')"
+    )
     op.create_table(
         "verification_cases",
         sa.Column("id", sa.Integer(), primary_key=True),

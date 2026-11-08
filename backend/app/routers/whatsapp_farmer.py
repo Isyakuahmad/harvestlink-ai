@@ -421,18 +421,20 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
 def create_plant_health_case(payload: PlantHealthReport, db: DatabaseSession, user: CurrentUser):
     if user.role != "farmer":
         raise HTTPException(status_code=403, detail="Farmer account required")
+    if payload.photo_uri and not payload.photo_uri.startswith("https://"):
+        raise HTTPException(status_code=422, detail="Photo URI must use HTTPS")
     guidance = _ipm_guidance(payload.symptoms)
     case = PlantHealthCase(
         farmer_user_id=user.id, crop_name=payload.crop_name,
         farm_location=payload.farm_location, symptoms=payload.symptoms,
         affected_area_percent=payload.affected_area_percent,
-        severity=payload.severity, image_uri=payload.photo_uri,\n        status="needs_review", guidance_json=guidance,
+        severity=payload.severity, image_uri=payload.photo_uri,
+        status="needs_review", guidance_json=guidance,
     )
     db.add(case)
     db.commit()
     db.refresh(case)
     return {"case_id": case.id, "status": case.status, "guidance": guidance,
-            "image_url": payload.image_url,
             "disclaimer": "Preliminary IPM guidance only; not a confirmed diagnosis or pesticide prescription."}
 
 

@@ -19,7 +19,7 @@ def upgrade() -> None:
     op.create_table(
         "farm_profiles",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("farmer_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, unique=True),
+        sa.Column("farmer_user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("farm_name", sa.String(160), nullable=False),
         sa.Column("location", sa.String(180), nullable=False),
         sa.Column("acreage", sa.Float(), nullable=False),

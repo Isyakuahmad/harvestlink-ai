@@ -100,3 +100,48 @@ pytest
 ```
 
 Never commit credentials. Replace SECRET_KEY before deployment. Public registration never accepts a role field. Admin role is assigned only from the server-side `ADMIN_EMAILS` allowlist.
+
+
+## WhatsApp Farmer Agent, plant health and climate
+
+The WhatsApp adapter uses Meta's WhatsApp Cloud API webhook. It is opt-in: a farmer signs in to HarvestLink, requests a one-time linking code for their E.164 phone number, then sends `LINK CODE` to the official WhatsApp business number. Only the verified linked number can create farm records.
+
+### Configure Meta WhatsApp Cloud API
+
+Set these environment variables in the deployment secret manager (never commit real values):
+
+- `WHATSAPP_VERIFY_TOKEN`: a long random token used for Meta webhook verification.
+- `WHATSAPP_APP_SECRET`: Meta app secret used to validate `X-Hub-Signature-256`.
+- `WHATSAPP_ACCESS_TOKEN`: server-side permanent/system-user token with permission to send WhatsApp messages.
+- `WHATSAPP_PHONE_NUMBER_ID`: the Meta phone number ID.
+- `WHATSAPP_GRAPH_API_VERSION`: supported Graph API version, default `v21.0`.
+
+Configure the Meta webhook callback as `https://YOUR_API_HOST/api/v1/whatsapp/webhook`, subscribe to the `messages` field, and set the verify token to the exact configured value. HTTPS is required. Do not expose access tokens in the dashboard or logs.
+
+### Farmer interaction
+
+Examples:
+- `I planted 3 hectares of maize today`
+- `I bought 20 bags of fertiliser for ₦850,000`
+- `My tomato leaves have yellow spots`
+- `WEATHER` or share a WhatsApp location attachment
+
+Activity extraction is deliberately deterministic and limited to supported phrases. The agent creates a pending draft and asks the farmer to reply `YES` before the activity is saved; `NO` cancels it. A matching active crop season must exist. Unsupported messages are not silently written into the ledger.
+
+### Plant health and pesticide safety
+
+Plant health reports are stored as cases for follow-up. Current symptom grouping is preliminary IPM guidance, not an image diagnosis. WhatsApp image media IDs are retained as references; media download, malware scanning and image-model assessment are not enabled in this milestone. Farmers are asked for crop, symptoms, onset and affected area. The service does not prescribe a chemical, brand, concentration or spray rate. Any pesticide use must be based on correct pest identification, current Nigerian registration for the intended crop and target, and the product label; extension review is recommended for severe or spreading problems.
+
+### Climate
+
+`GET /api/v1/climate/forecast?latitude=...&longitude=...` returns a three-day forecast from Open-Meteo for an authenticated farmer. A farmer can share their location through WhatsApp; the coordinates are stored against their linked channel and used when they request WEATHER. Forecasts are estimates and should not be treated as field measurements.
+
+### API routes
+
+- `POST /api/v1/whatsapp/link-challenge` (authenticated farmer)
+- `GET /api/v1/whatsapp/webhook` (Meta verification)
+- `POST /api/v1/whatsapp/webhook` (signed Meta events)
+- `POST /api/v1/plant-health/cases` and `GET /api/v1/plant-health/cases`
+- `GET /api/v1/climate/forecast`
+
+Apply migration `alembic upgrade head` before running this release.

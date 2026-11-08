@@ -153,8 +153,10 @@ def create_season(payload: FarmSeasonCreate, db: DatabaseSession, farmer: Farmer
     if farm is None:
         raise HTTPException(status_code=404, detail="Farm profile not found")
     values = payload.model_dump()
-    planting = _date(values.pop("planting_date"), "planting_date") if values["planting_date"] else None
-    harvest = _date(values.pop("expected_harvest_date"), "expected_harvest_date") if values["expected_harvest_date"] else None
+    planting_value = values.pop("planting_date")
+    harvest_value = values.pop("expected_harvest_date")
+    planting = _date(planting_value, "planting_date") if planting_value else None
+    harvest = _date(harvest_value, "expected_harvest_date") if harvest_value else None
     if planting and harvest and harvest < planting:
         raise HTTPException(status_code=422, detail="Expected harvest cannot precede planting")
     season = FarmSeason(farmer_user_id=farmer.id, planting_date=planting,

@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     cors_origins: str = "http://localhost:3000"
     admin_emails: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_graph_api_version: str = "v27.0"
 
     model_config = SettingsConfigDict(
         env_file=".env",

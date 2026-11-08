@@ -22,6 +22,10 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 def create_buyer_requirement(
     payload: BuyerRequirementInput, db: DatabaseSession, user: CurrentUser
 ):
+    if user.role != "buyer":
+        raise HTTPException(status_code=403, detail="Only buyer accounts can create requirements")
+    if user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="Buyer verification approval is required")
     requirement = BuyerRequirement(
         buyer_user_id=user.id,
         **payload.model_dump(),

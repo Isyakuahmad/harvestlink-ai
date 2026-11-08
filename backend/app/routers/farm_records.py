@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from secrets import token_urlsafe
-from urllib.parse import urlsplit
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -10,12 +10,21 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import (
-    AuditLog, FarmActivity, FarmEvidence, FarmProfile, FarmSeason,
-    FarmShareAccess, FarmShareGrant, User,
+    AuditLog,
+    FarmActivity,
+    FarmEvidence,
+    FarmProfile,
+    FarmSeason,
+    FarmShareAccess,
+    FarmShareGrant,
+    User,
 )
 from app.schemas import (
-    FarmActivityCreate, FarmEvidenceCreate, FarmProfileCreate,
-    FarmSeasonCreate, FarmShareCreate,
+    FarmActivityCreate,
+    FarmEvidenceCreate,
+    FarmProfileCreate,
+    FarmSeasonCreate,
+    FarmShareCreate,
 )
 
 router = APIRouter(prefix="/api/v1/farm-records", tags=["farmer records"])
@@ -275,7 +284,6 @@ def revoke_share(share_id: int, db: DatabaseSession, farmer: FarmerUser):
                         subject_type="farm_share_grant", subject_id=grant.id,
                         details_json={"recipient_type": grant.recipient_type}))
         db.commit()
-    return None
 
 
 @router.get("/shared/{access_token}")
@@ -293,12 +301,18 @@ def shared_report(access_token: str, db: DatabaseSession):
             "report": _report(db, grant.farmer_user_id, grant.season_id)}
 
 
-@router.post("/admin/evidence/{evidence_id}/verify")
-def verify_evidence(evidence_id: int, reason: str = Query(min_length=5, max_length=1000),
-                    db: DatabaseSession = Depends(get_db),
-                    reviewer: User = Depends(get_current_user)):
-    if reviewer.role != "admin":
+def require_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
         raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]
+
+
+@router.post("/admin/evidence/{evidence_id}/verify")
+def verify_evidence(evidence_id: int, reason: Annotated[str, Query(min_length=5, max_length=1000)],
+                    db: DatabaseSession, reviewer: AdminUser):
     evidence = db.query(FarmEvidence).filter(FarmEvidence.id == evidence_id).first()
     if evidence is None:
         raise HTTPException(status_code=404, detail="Evidence not found")

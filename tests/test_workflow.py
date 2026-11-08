@@ -89,6 +89,12 @@ def test_farmer_trust_matching_orchestrator_flow(client):
     )
     assert history.status_code == 200
     assert history.json()["status"] == "completed"
+    assert [task["agent_name"] for task in history.json()["agent_tasks"]] == [
+        "farmer",
+        "trust",
+        "buyer_matching",
+        "orchestrator",
+    ]
 
 
 def test_incompatible_crop_is_not_matched(client):
@@ -118,6 +124,26 @@ def test_incompatible_crop_is_not_matched(client):
     )
     assert response.status_code == 201
     assert response.json()["matches"][0]["eligible"] is False
+
+
+def test_workflow_history_is_private_to_the_farmer(client):
+    farmer_headers = register_and_login(client, "owner@harvestlink.test", "Owner Farmer")
+    other_headers = register_and_login(client, "other@harvestlink.test", "Other Farmer")
+    response = client.post(
+        "/api/v1/workflows/produce-offers",
+        headers=farmer_headers,
+        json={
+            "crop_name": "maize",
+            "quantity": 2,
+            "unit": "tonne",
+            "quality_description": "Dry maize grain",
+            "location": "Minna, Niger",
+            "available_on": date.today().isoformat(),
+        },
+    )
+    run_id = response.json()["workflow_run_id"]
+    hidden = client.get(f"/api/v1/workflows/{run_id}", headers=other_headers)
+    assert hidden.status_code == 404
 
 
 def test_offer_requires_authentication(client):

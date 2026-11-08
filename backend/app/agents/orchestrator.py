@@ -54,7 +54,8 @@ def execute_offer_workflow(
 
         requirements = (
             db.query(BuyerRequirement)
-            .filter(BuyerRequirement.is_active.is_(True))
+            .join(User, BuyerRequirement.buyer_user_id == User.id)
+            .filter(BuyerRequirement.is_active.is_(True), User.verification_status == "verified")
             .all()
         )
         matches = find_matches(offer, requirements)

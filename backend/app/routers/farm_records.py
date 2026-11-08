@@ -89,7 +89,10 @@ def _report(db: Session, farmer_id: int, season_id: int | None = None) -> dict:
         for activity in activities:
             if activity.amount is None or activity.currency is None:
                 continue
-            bucket = totals_by_currency.setdefault(activity.currency, {"recorded_income": 0, "recorded_expenses": 0})
+            bucket = totals_by_currency.setdefault(
+                activity.currency,
+                {"recorded_income": 0, "recorded_expenses": 0},
+            )
             if activity.activity_type == "sale":
                 bucket["recorded_income"] += activity.amount
             elif activity.activity_type in {"input_purchase", "labour"}:

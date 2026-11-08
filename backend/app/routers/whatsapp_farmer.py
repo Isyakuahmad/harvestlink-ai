@@ -5,6 +5,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from secrets import token_urlsafe
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -117,7 +118,7 @@ def _parse_activity(text: str) -> dict | None:
     return {
         "activity_type": activity_type,
         "description": text.strip()[:2000],
-        "activity_date": date.today().isoformat(),
+        "activity_date": datetime.now(ZoneInfo("Africa/Lagos")).date().isoformat(),
         "quantity": quantity,
         "quantity_unit": unit,
         "amount": amount,
@@ -295,7 +296,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                 media_id = message.get(message_type, {}).get("id") if message_type in {"image", "audio", "document"} else None
                 inbound = WhatsAppInboundMessage(
                     provider_message_id=provider_id, from_phone=sender,
-                    message_type=message_type, message_text=message_text, media_id=media_id,
+                    message_type=message_type, message_text=None, media_id=media_id,
                 )
                 db.add(inbound)
                 db.flush()

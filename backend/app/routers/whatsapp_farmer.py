@@ -26,7 +26,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 class WhatsAppLinkRequest(BaseModel):
-    phone_e164: str = Field(pattern=r"^\\+[1-9][0-9]{7,14}$")
+    phone_e164: str = Field(pattern=r"^\+[1-9][0-9]{7,14}$")
 
 
 class PlantHealthReport(BaseModel):
@@ -84,28 +84,28 @@ def _ipm_guidance(symptoms: str) -> dict:
 def _parse_activity(text: str) -> dict | None:
     value = text.lower()
     activity_type = None
-    if re.search(r"\\b(plant(ed|ing)?|sow(ed|ing)?)\\b", value):
+    if re.search(r"\b(plant(ed|ing)?|sow(ed|ing)?)\b", value):
         activity_type = "planting"
-    elif re.search(r"\\b(bought|purchased|buy|purchase)\\b", value):
+    elif re.search(r"\b(bought|purchased|buy|purchase)\b", value):
         activity_type = "input_purchase"
-    elif re.search(r"\\b(spray(ed|ing)?|pesticide|insecticide)\\b", value):
+    elif re.search(r"\b(spray(ed|ing)?|pesticide|insecticide)\b", value):
         activity_type = "pest_control"
-    elif re.search(r"\\b(water(ed|ing)?|irrigat(ed|ion))\\b", value):
+    elif re.search(r"\b(water(ed|ing)?|irrigat(ed|ion))\b", value):
         activity_type = "irrigation"
-    elif re.search(r"\\b(harvest(ed|ing)?)\\b", value):
+    elif re.search(r"\b(harvest(ed|ing)?)\b", value):
         activity_type = "harvest"
-    elif re.search(r"\\b(sold|sale)\\b", value):
+    elif re.search(r"\b(sold|sale)\b", value):
         activity_type = "sale"
-    elif re.search(r"\\b(labour|labor|workers|worker)\\b", value):
+    elif re.search(r"\b(labour|labor|workers|worker)\b", value):
         activity_type = "labour"
     if not activity_type:
         return None
     crops = ("maize", "corn", "rice", "cassava", "yam", "sorghum", "millet",
              "soybean", "soya", "groundnut", "peanut", "tomato", "pepper",
              "onion", "beans", "cowpea", "sesame", "ginger", "cocoa")
-    crop = next((c for c in crops if re.search(rf"\\b{re.escape(c)}\\b", value)), None)
-    quantity_match = re.search(r"\\b(\\d+(?:\\.\\d+)?)\\s*(hectares?|ha|acres?|bags?|kg|kgs|tonnes?|tons?)\\b", value)
-    money_match = re.search(r"(?:₦|ngn\\s*)([\\d,]+(?:\\.\\d+)?)", text, re.IGNORECASE)
+    crop = next((c for c in crops if re.search(rf"\b{re.escape(c)}\b", value)), None)
+    quantity_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(hectares?|ha|acres?|bags?|kg|kgs|tonnes?|tons?)\b", value)
+    money_match = re.search(r"(?:₦|ngn\s*)([\d,]+(?:\.\d+)?)", text, re.IGNORECASE)
     quantity = float(quantity_match.group(1)) if quantity_match else None
     unit = quantity_match.group(2).lower() if quantity_match else None
     amount = float(money_match.group(1).replace(",", "")) if money_match else None
@@ -335,7 +335,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     if lat is not None and lon is not None:
                         link.latitude, link.longitude = float(lat), float(lon)
                         forecast = _weather(link.latitude, link.longitude)
-                        summary = "3-day local forecast:\\n" + "\\n".join(
+                        summary = "3-day local forecast:\n" + "\n".join(
                             f"{day['date']}: rain chance {day['precipitation_probability_max_percent']}%, rain {day['precipitation_sum_mm']} mm, max temp {day['temperature_max_c']}°C"
                             for day in forecast["daily"]
                         )
@@ -360,7 +360,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     "caterpillar", "insect", "worm", "blight", "rot", "curl", "mosaic",
                 ))
                 if symptoms and any(word in text_body.lower() for word in ("leaf", "leaves", "plant", "crop", "maize", "cassava", "rice", "tomato", "pepper")):
-                    crop_match = re.search(r"\\b(maize|corn|cassava|rice|tomato|pepper|yam|sorghum|millet|soybean|groundnut|beans)\\b", text_body, re.I)
+                    crop_match = re.search(r"\b(maize|corn|cassava|rice|tomato|pepper|yam|sorghum|millet|soybean|groundnut|beans)\b", text_body, re.I)
                     crop = crop_match.group(1).lower() if crop_match else "unspecified"
                     guidance = _ipm_guidance(text_body)
                     case = PlantHealthCase(
@@ -409,7 +409,7 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     continue
 
                 if text_body.lower() in {"help", "hi", "hello", "start"}:
-                    _send_whatsapp_text(sender, "HarvestLink Farmer Agent\\n1) Record: I planted 3 hectares of maize today.\\n2) Inputs: I bought 4 bags of fertiliser for ₦120,000.\\n3) Crop issue: My tomato leaves have yellow spots.\\n4) Weather: send WEATHER, or share your farm location.\\nI will ask you to confirm records before saving.")
+                    _send_whatsapp_text(sender, "HarvestLink Farmer Agent\n1) Record: I planted 3 hectares of maize today.\n2) Inputs: I bought 4 bags of fertiliser for ₦120,000.\n3) Crop issue: My tomato leaves have yellow spots.\n4) Weather: send WEATHER, or share your farm location.\nI will ask you to confirm records before saving.")
                 else:
                     _send_whatsapp_text(sender, "I did not understand that yet. Try: I planted 3 hectares of maize today; I bought 4 bags of fertiliser for ₦120,000; or describe your crop symptoms.")
                 processed += 1

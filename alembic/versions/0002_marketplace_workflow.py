@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("max_price", sa.Float(), nullable=True),
         sa.Column("currency", sa.String(3), nullable=True),
         sa.Column("is_active", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_buyer_requirements_buyer_user_id", "buyer_requirements", ["buyer_user_id"])
     op.create_index("ix_buyer_requirements_crop_name", "buyer_requirements", ["crop_name"])
@@ -47,7 +47,7 @@ def upgrade() -> None:
         sa.Column("asking_price", sa.Float(), nullable=True),
         sa.Column("currency", sa.String(3), nullable=True),
         sa.Column("status", sa.String(30), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_produce_listings_farmer_user_id", "produce_listings", ["farmer_user_id"])
     op.create_index("ix_produce_listings_crop_name", "produce_listings", ["crop_name"])
@@ -58,7 +58,7 @@ def upgrade() -> None:
         sa.Column("listing_id", sa.Integer(), sa.ForeignKey("produce_listings.id"), nullable=True),
         sa.Column("status", sa.String(30), nullable=False),
         sa.Column("result_json", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_workflow_runs_listing_id", "workflow_runs", ["listing_id"])
@@ -72,7 +72,7 @@ def upgrade() -> None:
         sa.Column("input_json", sa.JSON(), nullable=False),
         sa.Column("output_json", sa.JSON(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index("ix_agent_tasks_workflow_run_id", "agent_tasks", ["workflow_run_id"])
@@ -85,7 +85,7 @@ def upgrade() -> None:
         sa.Column("score", sa.Float(), nullable=False),
         sa.Column("eligible", sa.Boolean(), nullable=False),
         sa.Column("reasons_json", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_match_candidates_workflow_run_id", "match_candidates", ["workflow_run_id"])
     op.create_index("ix_match_candidates_buyer_requirement_id", "match_candidates", ["buyer_requirement_id"])

@@ -452,10 +452,10 @@ def list_plant_health_cases(db: DatabaseSession, user: CurrentUser):
 
 @router.get("/api/v1/climate/forecast")
 def climate_forecast(
+    user: CurrentUser,
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
-    user: CurrentUser = None,
 ):
-    if user is None or user.role != "farmer":
+    if user.role != "farmer":
         raise HTTPException(status_code=403, detail="Farmer account required")
     return _weather(latitude, longitude)

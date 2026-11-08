@@ -215,6 +215,32 @@ def create_link_challenge(payload: WhatsAppLinkRequest, db: DatabaseSession, use
     }
 
 
+
+@router.get("/api/v1/whatsapp/link-status")
+def whatsapp_link_status(db: DatabaseSession, user: CurrentUser):
+    link = db.query(WhatsAppChannelLink).filter(
+        WhatsAppChannelLink.user_id == user.id
+    ).first()
+    if link is None:
+        return {"linked": False, "phone_e164": None}
+    return {
+        "linked": link.verified_at is not None,
+        "phone_e164": link.phone_e164,
+        "verified_at": link.verified_at,
+        "location_shared": link.latitude is not None and link.longitude is not None,
+    }
+
+
+@router.delete("/api/v1/whatsapp/link", status_code=204)
+def unlink_whatsapp(db: DatabaseSession, user: CurrentUser):
+    link = db.query(WhatsAppChannelLink).filter(
+        WhatsAppChannelLink.user_id == user.id
+    ).first()
+    if link is not None:
+        db.delete(link)
+        db.commit()
+
+
 @router.get("/api/v1/whatsapp/webhook")
 def verify_whatsapp_webhook(
     mode: str | None = Query(default=None, alias="hub.mode"),

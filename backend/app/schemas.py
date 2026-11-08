@@ -20,6 +20,7 @@ class UserPublic(BaseModel):
     full_name: str
     role: str
     is_active: bool
+    verification_status: str
 
 
 class TokenResponse(BaseModel):

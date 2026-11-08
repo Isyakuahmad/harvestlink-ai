@@ -304,7 +304,12 @@ async def receive_whatsapp_webhook(request: Request, db: DatabaseSession):
                     FarmerPendingEntry.farmer_user_id == link.user_id,
                     FarmerPendingEntry.status == "pending",
                 ).order_by(FarmerPendingEntry.created_at.desc()).first()
-                if pending is not None and pending.expires_at.tzinfo is None:\n                    pending.expires_at = pending.expires_at.replace(tzinfo=UTC)\n                if pending is not None and pending.expires_at <= datetime.now(UTC):\n                    pending.status = "expired"\n                    pending = None\n                if text_body.lower() in {"yes", "confirm", "save", "1"} and pending:
+                if pending is not None and pending.expires_at.tzinfo is None:
+                    pending.expires_at = pending.expires_at.replace(tzinfo=UTC)
+                if pending is not None and pending.expires_at <= datetime.now(UTC):
+                    pending.status = "expired"
+                    pending = None
+                if text_body.lower() in {"yes", "confirm", "save", "1"} and pending:
                     entry_data = pending.entry_json
                     activity = FarmActivity(
                         farmer_user_id=link.user_id, season_id=pending.season_id,

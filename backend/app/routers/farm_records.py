@@ -275,6 +275,8 @@ def shared_report(access_token: str, db: DatabaseSession):
     token_hash = sha256(access_token.encode()).hexdigest()
     grant = db.query(FarmShareGrant).filter(FarmShareGrant.token_hash == token_hash).first()
     now = datetime.now(UTC)
+    if grant is not None and grant.expires_at.tzinfo is None:
+        grant.expires_at = grant.expires_at.replace(tzinfo=UTC)
     if grant is None or grant.revoked_at is not None or grant.expires_at <= now:
         raise HTTPException(status_code=404, detail="This shared report link is invalid or expired")
     db.add(FarmShareAccess(grant_id=grant.id))

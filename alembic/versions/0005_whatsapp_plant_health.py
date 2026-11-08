@@ -6,6 +6,7 @@ Revises: 0004_farmer_evidence_ledger
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0005_whatsapp_plant_health"

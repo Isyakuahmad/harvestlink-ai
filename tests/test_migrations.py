@@ -5,7 +5,6 @@ from sqlalchemy import create_engine, inspect
 
 from alembic import command
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

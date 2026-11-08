@@ -85,21 +85,24 @@ def _report(db: Session, farmer_id: int, season_id: int | None = None) -> dict:
                     ) else "document_supported" if evidence else "self_reported"
                 ),
             })
-        income = sum(
-            (a.amount or 0) for a in activities if a.activity_type in {"sale", "delivery"}
-        )
-        expenses = sum(
-            (a.amount or 0) for a in activities
-            if a.activity_type in {"input_purchase", "labour", "other"}
-        )
+        totals_by_currency = {}
+        for activity in activities:
+            if activity.amount is None or activity.currency is None:
+                continue
+            bucket = totals_by_currency.setdefault(activity.currency, {"recorded_income": 0, "recorded_expenses": 0})
+            if activity.activity_type == "sale":
+                bucket["recorded_income"] += activity.amount
+            elif activity.activity_type in {"input_purchase", "labour"}:
+                bucket["recorded_expenses"] += activity.amount
+        for bucket in totals_by_currency.values():
+            bucket["recorded_net"] = bucket["recorded_income"] - bucket["recorded_expenses"]
         result.append({
             "season_id": season.id, "crop_name": season.crop_name,
             "season_name": season.season_name, "planted_area": season.planted_area,
             "area_unit": season.area_unit, "planting_date": season.planting_date,
             "expected_harvest_date": season.expected_harvest_date,
             "status": season.status, "activities": entries,
-            "totals": {"recorded_income": income, "recorded_expenses": expenses,
-                       "recorded_net": income - expenses},
+            "totals_by_currency": totals_by_currency,
             "disclaimer": "Totals include only amounts entered in HarvestLink; they are not audited accounts.",
         })
     return {"farmer_user_id": farmer_id, "generated_at": datetime.now(UTC),
@@ -165,6 +168,8 @@ def list_seasons(db: DatabaseSession, farmer: FarmerUser):
 def add_activity(season_id: int, payload: FarmActivityCreate,
                  db: DatabaseSession, farmer: FarmerUser):
     _owned_season(db, farmer.id, season_id)
+    if payload.season_id != season_id:
+        raise HTTPException(status_code=422, detail="season_id must match the URL")
     values = payload.model_dump()
     values.pop("season_id")
     activity = FarmActivity(

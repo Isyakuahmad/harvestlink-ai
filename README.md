@@ -30,7 +30,20 @@ The workflow creates internal match suggestions only. It does not publish listin
 - POST /api/v1/workflows/produce-offers — authenticated farmer submits an offer and runs the complete workflow.
 - GET /api/v1/workflows/{workflow_run_id} — farmer retrieves their own workflow result.
 
-Use the interactive API docs at /docs to try the endpoints. Public registration currently creates farmer accounts; buyer accounts for testing can be assigned the buyer role by an administrator/database operator. The MVP buyer-requirement endpoint is authenticated but not yet restricted to a buyer role.
+Use the interactive API docs at /docs to try the endpoints. Public farmer registration creates an unverified farmer account and a pending verification case. Buyer registration is available at `POST /api/v1/auth/register/buyer`; it creates a buyer profile and a pending verification case. Buyer demand creation is blocked until an administrator approves the buyer.
+
+### Buyer onboarding and human approval
+- `POST /api/v1/auth/register/buyer` — buyer account plus organization/contact profile.
+- `GET /api/v1/admin/verification-cases` — administrator review queue.
+- `POST /api/v1/admin/verification-cases/{case_id}/decision` — approve or reject with a mandatory reason.
+- Farmer identity approval changes the farmer verification state. A produce listing is reviewed separately; it can only be approved after its farmer identity is verified.
+- Buyer approval unlocks buyer requirement creation.
+- Every decision is recorded in the audit log.
+- Rejected users/listings remain blocked.
+
+Configure trusted administrator email addresses using `ADMIN_EMAILS=admin@example.com` before the administrator logs in. The allowlist is server configuration; public registration cannot choose the admin role. For an existing account, set the allowlisted email and sign in again to apply the role. Never expose admin email allowlists in client code.
+
+Listings and buyer contact remain gated; approval records do not themselves send messages, publish data externally, or make commercial commitments.
 
 ## Local setup
 
@@ -86,4 +99,4 @@ ruff check .
 pytest
 ```
 
-Never commit credentials. Replace SECRET_KEY before deployment. Public registration always assigns the farmer role; administrator access is granted separately.
+Never commit credentials. Replace SECRET_KEY before deployment. Public registration never accepts a role field. Admin role is assigned only from the server-side `ADMIN_EMAILS` allowlist.

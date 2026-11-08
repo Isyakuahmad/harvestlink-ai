@@ -141,7 +141,7 @@ class FarmProfile(Base):
     __tablename__ = "farm_profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    farmer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     farm_name: Mapped[str] = mapped_column(String(160), nullable=False)
     location: Mapped[str] = mapped_column(String(180), nullable=False)
     acreage: Mapped[float] = mapped_column(Float, nullable=False)

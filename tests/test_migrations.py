@@ -1,28 +1,36 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
-
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import create_engine, inspect
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_initial_migration_upgrade_and_downgrade(tmp_path):
+def test_migrations_upgrade_and_downgrade(tmp_path):
     database_path = tmp_path / "migration-test.db"
     engine = create_engine(f"sqlite:///{database_path}")
+    connection = engine.connect()
     config = Config(str(ROOT / "alembic.ini"))
-    config.attributes["connection"] = engine.connect()
+    config.attributes["connection"] = connection
 
     try:
         command.upgrade(config, "head")
-        inspector = inspect(config.attributes["connection"])
+        inspector = inspect(connection)
+        expected_tables = {
+            "users",
+            "buyer_requirements",
+            "produce_listings",
+            "workflow_runs",
+            "agent_tasks",
+            "match_candidates",
+            "alembic_version",
+        }
+        assert expected_tables.issubset(set(inspector.get_table_names()))
 
-        assert "users" in inspector.get_table_names()
-        assert "alembic_version" in inspector.get_table_names()
-        columns = {column["name"] for column in inspector.get_columns("users")}
-        assert columns == {
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        assert user_columns == {
             "id",
             "email",
             "full_name",
@@ -33,7 +41,7 @@ def test_initial_migration_upgrade_and_downgrade(tmp_path):
         }
 
         command.downgrade(config, "base")
-        assert "users" not in inspect(config.attributes["connection"]).get_table_names()
+        assert "users" not in inspect(connection).get_table_names()
     finally:
-        config.attributes["connection"].close()
+        connection.close()
         engine.dispose()

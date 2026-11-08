@@ -39,8 +39,8 @@ def register_and_login(client, email, full_name):
 
 
 def test_farmer_trust_matching_orchestrator_flow(client):
-    farmer_headers = register_and_login(client, "farmer@harvestlink.test", "Farmer One")
-    buyer_headers = register_and_login(client, "buyer@harvestlink.test", "Buyer One")
+    farmer_headers = register_and_login(client, "farmer@example.com", "Farmer One")
+    buyer_headers = register_and_login(client, "buyer@example.com", "Buyer One")
 
     requirement = client.post(
         "/api/v1/buyer-requirements",
@@ -98,8 +98,8 @@ def test_farmer_trust_matching_orchestrator_flow(client):
 
 
 def test_incompatible_crop_is_not_matched(client):
-    farmer_headers = register_and_login(client, "farmer2@harvestlink.test", "Farmer Two")
-    buyer_headers = register_and_login(client, "buyer2@harvestlink.test", "Buyer Two")
+    farmer_headers = register_and_login(client, "farmer2@example.com", "Farmer Two")
+    buyer_headers = register_and_login(client, "buyer2@example.com", "Buyer Two")
     client.post(
         "/api/v1/buyer-requirements",
         headers=buyer_headers,
@@ -127,8 +127,8 @@ def test_incompatible_crop_is_not_matched(client):
 
 
 def test_workflow_history_is_private_to_the_farmer(client):
-    farmer_headers = register_and_login(client, "owner@harvestlink.test", "Owner Farmer")
-    other_headers = register_and_login(client, "other@harvestlink.test", "Other Farmer")
+    farmer_headers = register_and_login(client, "owner@example.com", "Owner Farmer")
+    other_headers = register_and_login(client, "other@example.com", "Other Farmer")
     response = client.post(
         "/api/v1/workflows/produce-offers",
         headers=farmer_headers,

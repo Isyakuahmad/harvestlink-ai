@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import AuditLog, BuyerRequirement, MatchCandidate, ProduceListing, User, WorkflowRun
-from app.procurement_models import BuyerInterest, ProcurementTransaction, TransactionEvent
+from app.procurement_models import (\n    BuyerInterest,\n    LogisticsProviderProfile,\n    LogisticsQuote,\n    LogisticsQuoteRequest,\n    ProcurementTransaction,\n    TransactionEvent,\n)
 
 router = APIRouter(prefix="/api/v1", tags=["procurement"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -331,3 +331,232 @@ def record_delivery(transaction_id: int, payload: InterestCreate, db: DatabaseSe
     db.commit()
     db.refresh(transaction)
     return _transaction_view(transaction, user.id)
+
+
+class LogisticsRequestCreate(BaseModel):
+    destination: str = Field(min_length=2, max_length=180)
+    pickup_date: date
+    cargo_description: str = Field(min_length=3, max_length=1000)
+
+
+class LogisticsQuoteCreate(BaseModel):
+    amount: float = Field(gt=0, le=1_000_000_000)
+    currency: str = Field(min_length=3, max_length=3)
+    estimated_days: int = Field(gt=0, le=365)
+    notes: str = Field(default="", max_length=1000)
+
+    @field_validator("currency")
+    @classmethod
+    def normalize_currency(cls, value: str) -> str:
+        return value.upper()
+
+
+class TransactionIssue(BaseModel):
+    description: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/transactions/{transaction_id}/logistics-requests", status_code=201)
+def create_logistics_request(
+    transaction_id: int, payload: LogisticsRequestCreate, db: DatabaseSession, user: CurrentUser
+):
+    transaction = db.query(ProcurementTransaction).filter(
+        ProcurementTransaction.id == transaction_id,
+        (ProcurementTransaction.buyer_user_id == user.id)
+        | (ProcurementTransaction.farmer_user_id == user.id),
+    ).first()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if transaction.status != "confirmed":
+        raise HTTPException(status_code=409, detail="Only confirmed transactions can request logistics")
+    listing = db.query(ProduceListing).filter(ProduceListing.id == transaction.listing_id).first()
+    request = LogisticsQuoteRequest(
+        transaction_id=transaction.id,
+        requested_by_user_id=user.id,
+        origin=listing.location,
+        destination=payload.destination.strip(),
+        pickup_date=datetime.combine(payload.pickup_date, datetime.min.time(), tzinfo=UTC),
+        cargo_description=payload.cargo_description.strip(),
+    )
+    db.add(request)
+    db.flush()
+    db.add(TransactionEvent(
+        transaction_id=transaction.id, actor_user_id=user.id,
+        event_type="logistics_quote_requested",
+        details_json={"request_id": request.id, "destination": request.destination},
+    ))
+    db.commit()
+    db.refresh(request)
+    return {
+        "id": request.id, "transaction_id": request.transaction_id,
+        "origin": request.origin, "destination": request.destination,
+        "pickup_date": request.pickup_date, "cargo_description": request.cargo_description,
+        "status": request.status,
+    }
+
+
+@router.get("/logistics/requests")
+def list_logistics_requests(db: DatabaseSession, user: CurrentUser):
+    if user.role != "logistics_provider" or user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="A verified logistics provider account is required")
+    requests = db.query(LogisticsQuoteRequest).filter(
+        LogisticsQuoteRequest.status == "open"
+    ).order_by(LogisticsQuoteRequest.created_at.desc()).all()
+    return [{
+        "id": item.id, "origin": item.origin, "destination": item.destination,
+        "pickup_date": item.pickup_date, "cargo_description": item.cargo_description,
+    } for item in requests]
+
+
+@router.post("/logistics/requests/{request_id}/quotes", status_code=201)
+def submit_logistics_quote(
+    request_id: int, payload: LogisticsQuoteCreate, db: DatabaseSession, user: CurrentUser
+):
+    if user.role != "logistics_provider" or user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="A verified logistics provider account is required")
+    provider = db.query(LogisticsProviderProfile).filter(
+        LogisticsProviderProfile.user_id == user.id
+    ).first()
+    if provider is None:
+        raise HTTPException(status_code=403, detail="Logistics provider profile is missing")
+    request = db.query(LogisticsQuoteRequest).filter(
+        LogisticsQuoteRequest.id == request_id, LogisticsQuoteRequest.status == "open"
+    ).first()
+    if request is None:
+        raise HTTPException(status_code=404, detail="Open logistics request not found")
+    existing = db.query(LogisticsQuote).filter(
+        LogisticsQuote.request_id == request.id,
+        LogisticsQuote.provider_user_id == user.id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="You have already quoted this request")
+    quote = LogisticsQuote(
+        request_id=request.id, provider_user_id=user.id, amount=payload.amount,
+        currency=payload.currency, estimated_days=payload.estimated_days,
+        notes=payload.notes.strip(),
+    )
+    db.add(quote)
+    db.commit()
+    db.refresh(quote)
+    return {
+        "id": quote.id, "request_id": quote.request_id, "amount": quote.amount,
+        "currency": quote.currency, "estimated_days": quote.estimated_days,
+        "notes": quote.notes, "status": quote.status,
+    }
+
+
+@router.get("/transactions/{transaction_id}/logistics-quotes")
+def list_transaction_quotes(transaction_id: int, db: DatabaseSession, user: CurrentUser):
+    transaction = db.query(ProcurementTransaction).filter(
+        ProcurementTransaction.id == transaction_id,
+        (ProcurementTransaction.buyer_user_id == user.id)
+        | (ProcurementTransaction.farmer_user_id == user.id),
+    ).first()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    requests = db.query(LogisticsQuoteRequest).filter(
+        LogisticsQuoteRequest.transaction_id == transaction.id
+    ).all()
+    result = []
+    for request in requests:
+        for quote in db.query(LogisticsQuote).filter(LogisticsQuote.request_id == request.id).all():
+            result.append({
+                "id": quote.id, "request_id": request.id,
+                "provider_user_id": quote.provider_user_id, "amount": quote.amount,
+                "currency": quote.currency, "estimated_days": quote.estimated_days,
+                "notes": quote.notes, "status": quote.status,
+                "buyer_approved": quote.buyer_approved_at is not None,
+                "farmer_approved": quote.farmer_approved_at is not None,
+            })
+    return result
+
+
+@router.post("/logistics/quotes/{quote_id}/approve")
+def approve_logistics_quote(quote_id: int, db: DatabaseSession, user: CurrentUser):
+    quote = db.query(LogisticsQuote).filter(LogisticsQuote.id == quote_id).first()
+    if quote is None:
+        raise HTTPException(status_code=404, detail="Logistics quote not found")
+    request = db.query(LogisticsQuoteRequest).filter(
+        LogisticsQuoteRequest.id == quote.request_id
+    ).first()
+    transaction = db.query(ProcurementTransaction).filter(
+        ProcurementTransaction.id == request.transaction_id,
+        (ProcurementTransaction.buyer_user_id == user.id)
+        | (ProcurementTransaction.farmer_user_id == user.id),
+    ).with_for_update().first()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if quote.status not in {"submitted", "awaiting_provider"}:
+        raise HTTPException(status_code=409, detail="Quote is no longer awaiting approvals")
+    now = datetime.now(UTC)
+    if user.id == transaction.buyer_user_id:
+        if quote.buyer_approved_at is not None:
+            raise HTTPException(status_code=409, detail="Buyer approval already recorded")
+        quote.buyer_approved_at = now
+    else:
+        if quote.farmer_approved_at is not None:
+            raise HTTPException(status_code=409, detail="Farmer approval already recorded")
+        quote.farmer_approved_at = now
+    if quote.buyer_approved_at and quote.farmer_approved_at:
+        quote.status = "awaiting_provider"
+    db.add(TransactionEvent(
+        transaction_id=transaction.id, actor_user_id=user.id,
+        event_type="logistics_quote_party_approved",
+        details_json={"quote_id": quote.id, "status": quote.status},
+    ))
+    db.commit()
+    return {
+        "quote_id": quote.id, "status": quote.status,
+        "buyer_approved": quote.buyer_approved_at is not None,
+        "farmer_approved": quote.farmer_approved_at is not None,
+    }
+
+
+@router.post("/logistics/quotes/{quote_id}/provider-confirm")
+def provider_confirm_logistics_quote(quote_id: int, db: DatabaseSession, user: CurrentUser):
+    if user.role != "logistics_provider" or user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="A verified logistics provider account is required")
+    quote = db.query(LogisticsQuote).filter(
+        LogisticsQuote.id == quote_id, LogisticsQuote.provider_user_id == user.id
+    ).with_for_update().first()
+    if quote is None:
+        raise HTTPException(status_code=404, detail="Logistics quote not found")
+    if quote.status != "awaiting_provider" or not quote.buyer_approved_at or not quote.farmer_approved_at:
+        raise HTTPException(status_code=409, detail="Both buyer and farmer must approve before provider confirmation")
+    quote.status = "booked"
+    quote.provider_confirmed_at = datetime.now(UTC)
+    request = db.query(LogisticsQuoteRequest).filter(
+        LogisticsQuoteRequest.id == quote.request_id
+    ).first()
+    db.add(TransactionEvent(
+        transaction_id=request.transaction_id, actor_user_id=user.id,
+        event_type="logistics_booking_confirmed", details_json={"quote_id": quote.id},
+    ))
+    db.commit()
+    return {"quote_id": quote.id, "status": quote.status, "provider_confirmed_at": quote.provider_confirmed_at}
+
+
+@router.post("/transactions/{transaction_id}/issue")
+def report_transaction_issue(
+    transaction_id: int, payload: TransactionIssue, db: DatabaseSession, user: CurrentUser
+):
+    transaction = db.query(ProcurementTransaction).filter(
+        ProcurementTransaction.id == transaction_id,
+        (ProcurementTransaction.buyer_user_id == user.id)
+        | (ProcurementTransaction.farmer_user_id == user.id),
+    ).with_for_update().first()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if transaction.status not in {"confirmed", "delivered"}:
+        raise HTTPException(status_code=409, detail="Issue can only be reported on an active transaction")
+    transaction.status = "issue_reported"
+    db.add(TransactionEvent(
+        transaction_id=transaction.id, actor_user_id=user.id,
+        event_type="issue_reported", details_json={"description": payload.description.strip()},
+    ))
+    db.add(AuditLog(
+        actor_user_id=user.id, action="transaction.issue_reported",
+        subject_type="procurement_transaction", subject_id=transaction.id,
+        details_json={"description": payload.description.strip()},
+    ))
+    db.commit()
+    return {"transaction_id": transaction.id, "status": transaction.status}

@@ -56,3 +56,47 @@ class TransactionEvent(Base):
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
     details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class LogisticsProviderProfile(Base):
+    __tablename__ = "logistics_provider_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    organization_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    phone: Mapped[str] = mapped_column(String(30), nullable=False)
+    service_areas: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    transport_modes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class LogisticsQuoteRequest(Base):
+    __tablename__ = "logistics_quote_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(ForeignKey("procurement_transactions.id"), index=True)
+    requested_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    origin: Mapped[str] = mapped_column(String(180), nullable=False)
+    destination: Mapped[str] = mapped_column(String(180), nullable=False)
+    pickup_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    cargo_description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class LogisticsQuote(Base):
+    __tablename__ = "logistics_quotes"
+    __table_args__ = (UniqueConstraint("request_id", "provider_user_id", name="uq_logistics_quote_provider"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("logistics_quote_requests.id"), index=True)
+    provider_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    estimated_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="submitted", nullable=False)
+    buyer_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    farmer_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

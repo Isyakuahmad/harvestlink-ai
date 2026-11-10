@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field\nfrom sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr, Field\nfrom sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
@@ -95,7 +95,7 @@ def me(user: CurrentUser):
 
 
 class LogisticsProviderRegister(BaseModel):
-    email: str
+    email: EmailStr
     full_name: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=10, max_length=128)
     organization_name: str = Field(min_length=2, max_length=180)

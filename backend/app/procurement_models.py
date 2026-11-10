@@ -4,8 +4,8 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     DateTime,
-    ForeignKey,
     Float,
+    ForeignKey,
     Integer,
     String,
     Text,

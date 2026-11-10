@@ -72,8 +72,8 @@ The MVP is complete only when all gates below pass:
 - [x] Delivery completion or an issue can be recorded with evidence and audit history.
 - [x] A basic web interface supports the demo journey without requiring direct API calls for every step.
 - [x] CI passes linting and all automated tests on the current MVP development branch.
-- [ ] A repeatable demo script and sample data are available.
-- [ ] Deployment instructions, environment variables, migration instructions and known limitations are documented.
+- [x] A repeatable demo walkthrough and clearly labelled sample data are available.
+- [x] Docker deployment instructions, environment variables, migration instructions and known limitations are documented.
 
 ## Delivery order
 

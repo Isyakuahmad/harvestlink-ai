@@ -183,3 +183,10 @@ Migration `0007_logistics_quotes` adds provider profiles, quote requests and quo
 Open `/dashboard` after starting the API. The responsive role-based workspace supports account registration and sign-in, administrator verification, farmer offers, buyer requirements and matches, buyer interest, farmer responses, transaction terms, logistics quotations, approvals and provider confirmation. The API documentation remains available at `/docs`.
 
 Live Meta WhatsApp credentials, real-world logistics partners, payment processing, and independent delivery verification are not configured by this MVP.
+
+
+## Competition MVP demo and deployment
+
+- [Demo walkthrough and clearly labelled sample data](docs/DEMO_SCRIPT.md)
+- [Docker deployment, persistent storage and migration guide](docs/DEPLOYMENT.md)
+- The interactive role-based workspace is served at `/dashboard`.

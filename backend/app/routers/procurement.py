@@ -220,8 +220,10 @@ def propose_transaction_terms(
     if match_row is None:
         raise HTTPException(status_code=404, detail="Matched produce listing not found")
     _, _, listing = match_row
-    if payload.quantity > listing.quantity or payload.unit != listing.unit:
-        raise HTTPException(status_code=422, detail="Terms exceed the listed quantity or use a different unit")
+    proposed_base_quantity = payload.quantity * (1000 if payload.unit == "tonne" else 1)
+    listed_base_quantity = listing.quantity * (1000 if listing.unit == "tonne" else 1)
+    if proposed_base_quantity > listed_base_quantity:
+        raise HTTPException(status_code=422, detail="Agreed quantity cannot exceed the listed quantity")
     terms = payload.model_dump(mode="json")
     transaction = ProcurementTransaction(
         interest_id=interest.id, buyer_user_id=user.id, farmer_user_id=interest.farmer_user_id,

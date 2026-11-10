@@ -177,6 +177,9 @@ def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
     )
     assert quote.status_code == 201, quote.text
     quote_id = quote.json()["id"]
+    my_quotes = client.get("/api/v1/logistics/my-quotes", headers=provider)
+    assert my_quotes.status_code == 200
+    assert my_quotes.json()[0]["id"] == quote_id
     buyer_approval = client.post(f"/api/v1/logistics/quotes/{quote_id}/approve", headers=buyer)
     assert buyer_approval.status_code == 200
     premature_booking = client.post(

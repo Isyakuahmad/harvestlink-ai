@@ -567,3 +567,31 @@ def report_transaction_issue(
     ))
     db.commit()
     return {"transaction_id": transaction.id, "status": transaction.status}
+
+
+@router.get("/logistics/my-quotes")
+def list_my_logistics_quotes(db: DatabaseSession, user: CurrentUser):
+    if user.role != "logistics_provider" or user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="A verified logistics provider account is required")
+    rows = (
+        db.query(LogisticsQuote, LogisticsQuoteRequest)
+        .join(LogisticsQuoteRequest, LogisticsQuote.request_id == LogisticsQuoteRequest.id)
+        .filter(LogisticsQuote.provider_user_id == user.id)
+        .order_by(LogisticsQuote.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": quote.id,
+            "request_id": request.id,
+            "origin": request.origin,
+            "destination": request.destination,
+            "amount": quote.amount,
+            "currency": quote.currency,
+            "estimated_days": quote.estimated_days,
+            "status": quote.status,
+            "buyer_approved": quote.buyer_approved_at is not None,
+            "farmer_approved": quote.farmer_approved_at is not None,
+        }
+        for quote, request in rows
+    ]

@@ -75,8 +75,8 @@ def approve_listing(client, admin_headers, listing_id):
 
 
 def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
-    farmer = account(client, "farmer@demo.test", "Farmer Demo")
-    buyer = account(client, "buyer@demo.test", "Buyer Demo", buyer=True)
+    farmer = account(client, "farmer@example.com", "Farmer Demo")
+    buyer = account(client, "buyer@example.com", "Buyer Demo", buyer=True)
     password = "secure-pass-123"
     admin_login = client.post("/api/v1/auth/login", json={
         "email": "admin@example.com", "password": password,
@@ -131,7 +131,7 @@ def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
     assert confirmed.json()["terms"]["price_per_unit"] == 1500000
 
     hidden = client.get(f"/api/v1/transactions/{tx_id}", headers=account(
-        client, "intruder@demo.test", "Intruder"
+        client, "intruder@example.com", "Intruder"
     ))
     assert hidden.status_code == 404
 

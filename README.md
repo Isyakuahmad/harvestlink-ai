@@ -162,4 +162,24 @@ The procurement workflow is available to verified marketplace participants:
 
 Migration `0006_procurement_transactions` adds interest, transaction and event tables. Apply it with `alembic upgrade head`.
 
-A delivery report is a participant-submitted record, not independent proof that goods were delivered. Logistics quotations, provider confirmation and a full dashboard are still being implemented; no transport booking or payment is performed by these endpoints.
+A delivery report is a participant-submitted record, not independent proof that goods were delivered. A logistics booking is only marked confirmed after both the buyer and farmer approve a provider quote and that verified provider confirms it. No payment is performed by the platform.
+
+### Logistics provider workflow
+
+- `POST /api/v1/auth/register/logistics-provider` — create a provider account and profile; administrator verification is required.
+- `POST /api/v1/transactions/{transaction_id}/logistics-requests` — buyer or farmer requests transport after transaction terms are confirmed.
+- `GET /api/v1/logistics/requests` — verified providers view open requests.
+- `POST /api/v1/logistics/requests/{request_id}/quotes` — verified provider submits a quotation.
+- `GET /api/v1/transactions/{transaction_id}/logistics-quotes` — transaction participants compare quotes.
+- `POST /api/v1/logistics/quotes/{quote_id}/approve` — buyer and farmer each record approval.
+- `GET /api/v1/logistics/my-quotes` — provider views submitted quotations and approval status.
+- `POST /api/v1/logistics/quotes/{quote_id}/provider-confirm` — provider confirms booking only after both approvals.
+- `POST /api/v1/transactions/{transaction_id}/issue` — participant records an issue against an active transaction.
+
+Migration `0007_logistics_quotes` adds provider profiles, quote requests and quotations. Run `alembic upgrade head`.
+
+### Web dashboard
+
+Open `/dashboard` after starting the API. The responsive role-based workspace supports account registration and sign-in, administrator verification, farmer offers, buyer requirements and matches, buyer interest, farmer responses, transaction terms, logistics quotations, approvals and provider confirmation. The API documentation remains available at `/docs`.
+
+Live Meta WhatsApp credentials, real-world logistics partners, payment processing, and independent delivery verification are not configured by this MVP.

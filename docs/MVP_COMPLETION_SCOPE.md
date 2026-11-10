@@ -61,17 +61,17 @@ The MVP is a Nigeria-first agricultural procurement coordination product. It is 
 
 The MVP is complete only when all gates below pass:
 
-- [ ] A clean database can be created by running Alembic migrations from zero.
-- [ ] A farmer can register, sign in, create a farm/season, and submit a produce offer.
-- [ ] An administrator can verify the farmer and approve/reject the listing with an audit record.
-- [ ] A buyer can register, be approved, and create a procurement requirement.
-- [ ] The matching workflow returns explainable, persisted matches and excludes unverified/ineligible participants.
-- [ ] A buyer can review a match and express interest; the farmer can respond.
-- [ ] Both parties can confirm transaction terms; unauthorized users cannot view or alter the transaction.
-- [ ] A logistics provider can submit a quotation against a request; no booking occurs without approval.
-- [ ] Delivery completion or an issue can be recorded with evidence and audit history.
-- [ ] A basic web interface supports the demo journey without requiring direct API calls for every step.
-- [ ] CI passes linting and all automated tests on the final MVP branch.
+- [x] A clean database can be created by running Alembic migrations from zero.
+- [x] A farmer can register, sign in, create a farm/season, and submit a produce offer.
+- [x] An administrator can verify the farmer and approve/reject the listing with an audit record.
+- [x] A buyer can register, be approved, and create a procurement requirement.
+- [x] The matching workflow returns explainable, persisted matches and excludes unverified/ineligible participants.
+- [x] A buyer can review a match and express interest; the farmer can respond.
+- [x] Both parties can confirm transaction terms; unauthorized users cannot view or alter the transaction.
+- [x] A logistics provider can submit a quotation against a request; no booking occurs without approval.
+- [x] Delivery completion or an issue can be recorded with evidence and audit history.
+- [x] A basic web interface supports the demo journey without requiring direct API calls for every step.
+- [x] CI passes linting and all automated tests on the current MVP development branch.
 - [ ] A repeatable demo script and sample data are available.
 - [ ] Deployment instructions, environment variables, migration instructions and known limitations are documented.
 

@@ -277,3 +277,5 @@ class PlantHealthCase(Base):
     guidance_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     reviewed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+from app.procurement_models import BuyerInterest, ProcurementTransaction, TransactionEvent  # noqa: F401

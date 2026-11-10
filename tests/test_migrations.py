@@ -38,6 +38,12 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "whatsapp_inbound_messages",
             "farmer_pending_entries",
             "plant_health_cases",
+            "buyer_interests",
+            "procurement_transactions",
+            "transaction_events",
+            "logistics_provider_profiles",
+            "logistics_quote_requests",
+            "logistics_quotes",
             "alembic_version",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))

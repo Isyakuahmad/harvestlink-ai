@@ -145,3 +145,48 @@ Plant health reports are stored as cases for follow-up. Current symptom grouping
 - `GET /api/v1/climate/forecast`
 
 Apply migration `alembic upgrade head` before running this release.
+
+
+## Buyer interest and procurement transactions
+
+The procurement workflow is available to verified marketplace participants:
+
+- `GET /api/v1/marketplace/matches` — verified buyers view eligible matches for their own active requirements. Only approved listings from verified farmers are shown.
+- `POST /api/v1/marketplace/matches/{match_id}/interest` — buyer expresses interest without creating a commitment.
+- `GET /api/v1/interests` — buyer or farmer views their own interest records.
+- `POST /api/v1/interests/{interest_id}/response` — farmer accepts, declines or requests clarification.
+- `POST /api/v1/interests/{interest_id}/terms` — buyer proposes quantity, unit, price per unit, currency, delivery location and date after farmer acceptance.
+- `POST /api/v1/transactions/{transaction_id}/confirm` — farmer confirms the proposed terms. The accepted terms are stored as a separate snapshot.
+- `GET /api/v1/transactions` and `GET /api/v1/transactions/{transaction_id}` — participants view only their own transactions and event history.
+- `POST /api/v1/transactions/{transaction_id}/delivery` — a transaction participant records a delivery report and evidence note.
+
+Migration `0006_procurement_transactions` adds interest, transaction and event tables. Apply it with `alembic upgrade head`.
+
+A delivery report is a participant-submitted record, not independent proof that goods were delivered. A logistics booking is only marked confirmed after both the buyer and farmer approve a provider quote and that verified provider confirms it. No payment is performed by the platform.
+
+### Logistics provider workflow
+
+- `POST /api/v1/auth/register/logistics-provider` — create a provider account and profile; administrator verification is required.
+- `POST /api/v1/transactions/{transaction_id}/logistics-requests` — buyer or farmer requests transport after transaction terms are confirmed.
+- `GET /api/v1/logistics/requests` — verified providers view open requests.
+- `POST /api/v1/logistics/requests/{request_id}/quotes` — verified provider submits a quotation.
+- `GET /api/v1/transactions/{transaction_id}/logistics-quotes` — transaction participants compare quotes.
+- `POST /api/v1/logistics/quotes/{quote_id}/approve` — buyer and farmer each record approval.
+- `GET /api/v1/logistics/my-quotes` — provider views submitted quotations and approval status.
+- `POST /api/v1/logistics/quotes/{quote_id}/provider-confirm` — provider confirms booking only after both approvals.
+- `POST /api/v1/transactions/{transaction_id}/issue` — participant records an issue against an active transaction.
+
+Migration `0007_logistics_quotes` adds provider profiles, quote requests and quotations. Run `alembic upgrade head`.
+
+### Web dashboard
+
+Open `/dashboard` after starting the API. The responsive role-based workspace supports account registration and sign-in, administrator verification, farmer offers, buyer requirements and matches, buyer interest, farmer responses, transaction terms, logistics quotations, approvals and provider confirmation. The API documentation remains available at `/docs`.
+
+Live Meta WhatsApp credentials, real-world logistics partners, payment processing, and independent delivery verification are not configured by this MVP.
+
+
+## Competition MVP demo and deployment
+
+- [Demo walkthrough and clearly labelled sample data](docs/DEMO_SCRIPT.md)
+- [Docker deployment, persistent storage and migration guide](docs/DEPLOYMENT.md)
+- The interactive role-based workspace is served at `/dashboard`.

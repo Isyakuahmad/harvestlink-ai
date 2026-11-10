@@ -1,12 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import BuyerProfile, User, VerificationCase
+from app.procurement_models import LogisticsProviderProfile
 from app.schemas import BuyerRegister, TokenResponse, UserLogin, UserPublic, UserRegister
 from app.security import create_access_token, hash_password, verify_password
 
@@ -91,4 +93,32 @@ def login(payload: UserLogin, db: DatabaseSession):
 
 @router.get("/me", response_model=UserPublic)
 def me(user: CurrentUser):
+    return user
+
+
+class LogisticsProviderRegister(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=120)
+    password: str = Field(min_length=10, max_length=128)
+    organization_name: str = Field(min_length=2, max_length=180)
+    phone: str = Field(min_length=7, max_length=30)
+    service_areas: list[str] = Field(min_length=1, max_length=30)
+    transport_modes: list[str] = Field(min_length=1, max_length=10)
+
+
+@router.post("/register/logistics-provider", response_model=UserPublic, status_code=201)
+def register_logistics_provider(payload: LogisticsProviderRegister, db: DatabaseSession):
+    user = _create_user(
+        db, payload.email, payload.full_name, payload.password, "logistics_provider"
+    )
+    if user.role != "admin":
+        db.add(LogisticsProviderProfile(
+            user_id=user.id,
+            organization_name=payload.organization_name.strip(),
+            phone=payload.phone.strip(),
+            service_areas=[area.strip() for area in payload.service_areas if area.strip()],
+            transport_modes=[mode.strip().lower() for mode in payload.transport_modes if mode.strip()],
+        ))
+    db.commit()
+    db.refresh(user)
     return user

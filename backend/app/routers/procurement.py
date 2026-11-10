@@ -8,7 +8,14 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import AuditLog, BuyerRequirement, MatchCandidate, ProduceListing, User, WorkflowRun
-from app.procurement_models import (\n    BuyerInterest,\n    LogisticsProviderProfile,\n    LogisticsQuote,\n    LogisticsQuoteRequest,\n    ProcurementTransaction,\n    TransactionEvent,\n)
+from app.procurement_models import (
+    BuyerInterest,
+    LogisticsProviderProfile,
+    LogisticsQuote,
+    LogisticsQuoteRequest,
+    ProcurementTransaction,
+    TransactionEvent,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["procurement"])
 DatabaseSession = Annotated[Session, Depends(get_db)]

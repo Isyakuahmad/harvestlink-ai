@@ -17,3 +17,17 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest
+      - name: Build Docker image
+        run: docker build -t harvestlink-ai:ci .
+      - name: Smoke test container migrations and dashboard
+        run: |
+          docker volume create harvestlink-ci-data
+          docker run --rm -e ENVIRONMENT=development -e SECRET_KEY=ci-only-secret-key-32-characters-minimum -e DATABASE_URL=sqlite:////data/harvestlink.db -v harvestlink-ci-data:/data harvestlink-ai:ci alembic upgrade head
+          docker run -d --name harvestlink-ci-app -e ENVIRONMENT=development -e SECRET_KEY=ci-only-secret-key-32-characters-minimum -e DATABASE_URL=sqlite:////data/harvestlink.db -v harvestlink-ci-data:/data -p 8000:8000 harvestlink-ai:ci
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8000/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8000/dashboard | grep -q "HarvestLink AI"
+          docker rm -f harvestlink-ci-app
+          docker volume rm harvestlink-ci-data

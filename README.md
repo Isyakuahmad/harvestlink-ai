@@ -145,3 +145,21 @@ Plant health reports are stored as cases for follow-up. Current symptom grouping
 - `GET /api/v1/climate/forecast`
 
 Apply migration `alembic upgrade head` before running this release.
+
+
+## Buyer interest and procurement transactions
+
+The procurement workflow is available to verified marketplace participants:
+
+- `GET /api/v1/marketplace/matches` — verified buyers view eligible matches for their own active requirements. Only approved listings from verified farmers are shown.
+- `POST /api/v1/marketplace/matches/{match_id}/interest` — buyer expresses interest without creating a commitment.
+- `GET /api/v1/interests` — buyer or farmer views their own interest records.
+- `POST /api/v1/interests/{interest_id}/response` — farmer accepts, declines or requests clarification.
+- `POST /api/v1/interests/{interest_id}/terms` — buyer proposes quantity, unit, price per unit, currency, delivery location and date after farmer acceptance.
+- `POST /api/v1/transactions/{transaction_id}/confirm` — farmer confirms the proposed terms. The accepted terms are stored as a separate snapshot.
+- `GET /api/v1/transactions` and `GET /api/v1/transactions/{transaction_id}` — participants view only their own transactions and event history.
+- `POST /api/v1/transactions/{transaction_id}/delivery` — a transaction participant records a delivery report and evidence note.
+
+Migration `0006_procurement_transactions` adds interest, transaction and event tables. Apply it with `alembic upgrade head`.
+
+A delivery report is a participant-submitted record, not independent proof that goods were delivered. Logistics quotations, provider confirmation and a full dashboard are still being implemented; no transport booking or payment is performed by these endpoints.

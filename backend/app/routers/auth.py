@@ -1,12 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field\nfrom sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
 from app.dependencies import get_current_user
-from app.models import BuyerProfile, User, VerificationCase\nfrom app.procurement_models import LogisticsProviderProfile
+from app.models import BuyerProfile, User, VerificationCase
+from app.procurement_models import LogisticsProviderProfile
 from app.schemas import BuyerRegister, TokenResponse, UserLogin, UserPublic, UserRegister
 from app.security import create_access_token, hash_password, verify_password
 

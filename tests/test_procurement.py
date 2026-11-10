@@ -135,6 +135,62 @@ def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
     ))
     assert hidden.status_code == 404
 
+
+    logistics_registration = client.post("/api/v1/auth/register/logistics-provider", json={
+        "email": "carrier@example.com", "full_name": "Carrier Manager",
+        "password": password, "organization_name": "Demo Haulage",
+        "phone": "+2348011111111", "service_areas": ["Nasarawa", "Abuja"],
+        "transport_modes": ["truck"],
+    })
+    assert logistics_registration.status_code == 201, logistics_registration.text
+    queue = client.get("/api/v1/admin/verification-cases", headers=admin).json()
+    provider_case = next(
+        x for x in queue if x["subject_type"] == "user"
+        and x["subject"]["email"] == "carrier@example.com"
+    )
+    approved_provider = client.post(
+        f"/api/v1/admin/verification-cases/{provider_case['id']}/decision",
+        headers=admin,
+        json={"decision": "approve", "reason": "Provider details checked for demo"},
+    )
+    assert approved_provider.status_code == 200, approved_provider.text
+    provider_login = client.post("/api/v1/auth/login", json={
+        "email": "carrier@example.com", "password": password,
+    })
+    provider = {"Authorization": f"Bearer {provider_login.json()['access_token']}"}
+
+    request = client.post(
+        f"/api/v1/transactions/{tx_id}/logistics-requests", headers=buyer,
+        json={
+            "destination": "Abuja central warehouse",
+            "pickup_date": (date.today() + timedelta(days=18)).isoformat(),
+            "cargo_description": "Two tonnes of bagged sesame",
+        },
+    )
+    assert request.status_code == 201, request.text
+    open_requests = client.get("/api/v1/logistics/requests", headers=provider)
+    assert open_requests.status_code == 200
+    quote = client.post(
+        f"/api/v1/logistics/requests/{request.json()['id']}/quotes",
+        headers=provider,
+        json={"amount": 250000, "currency": "NGN", "estimated_days": 2, "notes": "Covered truck"},
+    )
+    assert quote.status_code == 201, quote.text
+    quote_id = quote.json()["id"]
+    buyer_approval = client.post(f"/api/v1/logistics/quotes/{quote_id}/approve", headers=buyer)
+    assert buyer_approval.status_code == 200
+    premature_booking = client.post(
+        f"/api/v1/logistics/quotes/{quote_id}/provider-confirm", headers=provider
+    )
+    assert premature_booking.status_code == 409
+    farmer_approval = client.post(f"/api/v1/logistics/quotes/{quote_id}/approve", headers=farmer)
+    assert farmer_approval.status_code == 200
+    booking = client.post(
+        f"/api/v1/logistics/quotes/{quote_id}/provider-confirm", headers=provider
+    )
+    assert booking.status_code == 200, booking.text
+    assert booking.json()["status"] == "booked"
+
     delivered = client.post(
         f"/api/v1/transactions/{tx_id}/delivery", headers=buyer,
         json={"message": "Buyer confirmed delivery at the agreed location"},

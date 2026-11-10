@@ -408,6 +408,11 @@ def create_logistics_request(
 def list_logistics_requests(db: DatabaseSession, user: CurrentUser):
     if user.role != "logistics_provider" or user.verification_status != "verified":
         raise HTTPException(status_code=403, detail="A verified logistics provider account is required")
+    provider = db.query(LogisticsProviderProfile).filter(
+        LogisticsProviderProfile.user_id == user.id
+    ).first()
+    if provider is None:
+        raise HTTPException(status_code=403, detail="Logistics provider profile is missing")
     requests = db.query(LogisticsQuoteRequest).filter(
         LogisticsQuoteRequest.status == "open"
     ).order_by(LogisticsQuoteRequest.created_at.desc()).all()

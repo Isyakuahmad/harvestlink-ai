@@ -227,6 +227,9 @@ def propose_transaction_terms(
     if match_row is None:
         raise HTTPException(status_code=404, detail="Matched produce listing not found")
     _, _, listing = match_row
+    farmer = db.query(User).filter(User.id == listing.farmer_user_id).first()
+    if listing.status != "approved" or farmer is None or farmer.verification_status != "verified":
+        raise HTTPException(status_code=409, detail="The produce listing is no longer eligible")
     proposed_base_quantity = payload.quantity * (1000 if payload.unit == "tonne" else 1)
     listed_base_quantity = listing.quantity * (1000 if listing.unit == "tonne" else 1)
     if proposed_base_quantity > listed_base_quantity:
@@ -408,6 +411,14 @@ def list_logistics_requests(db: DatabaseSession, user: CurrentUser):
     requests = db.query(LogisticsQuoteRequest).filter(
         LogisticsQuoteRequest.status == "open"
     ).order_by(LogisticsQuoteRequest.created_at.desc()).all()
+    service_areas = [area.casefold() for area in provider.service_areas if area.strip()]
+    requests = [
+        item for item in requests
+        if any(
+            area in item.origin.casefold() or area in item.destination.casefold()
+            for area in service_areas
+        )
+    ]
     return [{
         "id": item.id, "origin": item.origin, "destination": item.destination,
         "pickup_date": item.pickup_date, "cargo_description": item.cargo_description,
@@ -492,6 +503,8 @@ def approve_logistics_quote(quote_id: int, db: DatabaseSession, user: CurrentUse
     ).with_for_update().first()
     if transaction is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if request.status != "open":
+        raise HTTPException(status_code=409, detail="This transport request is already closed")
     if quote.status not in {"submitted", "awaiting_provider"}:
         raise HTTPException(status_code=409, detail="Quote is no longer awaiting approvals")
     now = datetime.now(UTC)
@@ -529,11 +542,21 @@ def provider_confirm_logistics_quote(quote_id: int, db: DatabaseSession, user: C
         raise HTTPException(status_code=404, detail="Logistics quote not found")
     if quote.status != "awaiting_provider" or not quote.buyer_approved_at or not quote.farmer_approved_at:
         raise HTTPException(status_code=409, detail="Both buyer and farmer must approve before provider confirmation")
-    quote.status = "booked"
-    quote.provider_confirmed_at = datetime.now(UTC)
     request = db.query(LogisticsQuoteRequest).filter(
         LogisticsQuoteRequest.id == quote.request_id
     ).first()
+    if request.status != "open":
+        raise HTTPException(status_code=409, detail="Another provider quote has already been booked")
+    quote.status = "booked"
+    quote.provider_confirmed_at = datetime.now(UTC)
+    request.status = "closed"
+    other_quotes = db.query(LogisticsQuote).filter(
+        LogisticsQuote.request_id == request.id,
+        LogisticsQuote.id != quote.id,
+    ).all()
+    for other_quote in other_quotes:
+        if other_quote.status in {"submitted", "awaiting_provider"}:
+            other_quote.status = "not_selected"
     db.add(TransactionEvent(
         transaction_id=request.transaction_id, actor_user_id=user.id,
         event_type="logistics_booking_confirmed", details_json={"quote_id": quote.id},

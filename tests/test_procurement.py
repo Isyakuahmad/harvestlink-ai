@@ -193,6 +193,7 @@ def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
     )
     assert booking.status_code == 200, booking.text
     assert booking.json()["status"] == "booked"
+    assert client.get("/api/v1/logistics/requests", headers=provider).json() == []
 
     delivered = client.post(
         f"/api/v1/transactions/{tx_id}/delivery", headers=buyer,

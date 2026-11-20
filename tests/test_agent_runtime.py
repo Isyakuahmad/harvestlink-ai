@@ -1,5 +1,3 @@
-import pytest
-
 from app.agents.rules import get_rulebook
 from app.agents.runtime import AgentRuntime, Tool, ToolRegistry
 

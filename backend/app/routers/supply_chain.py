@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.agents.rules import get_rulebook
@@ -130,14 +131,26 @@ def request_storage(payload: StorageBookingCreate, db: Db, user: CurrentUser):
     ).first()
     if lot is None:
         raise HTTPException(status_code=404, detail="Available aggregator stock not found")
-    if lot.aggregator_user_id != user.id and user.role != "buyer":
-        raise HTTPException(status_code=403, detail="Only the stock owner or an approved buyer may request storage")
+    if user.role != "buyer" or user.verification_status != "verified":
+        raise HTTPException(status_code=403, detail="A verified marketplace participant is required")
+    if _buyer_type(db, user.id) == "storage_operator":
+        raise HTTPException(status_code=403, detail="Storage operators cannot request storage for stock")
     if payload.quantity_kg > lot.quantity * (1000 if lot.unit == "tonne" else 1):
         raise HTTPException(status_code=422, detail="Storage quantity exceeds stock quantity")
     operators = db.query(StorageOperatorProfile).all()
-    compatible = next((p for p in operators if lot.crop_name in p.accepted_commodities), None)
+    compatible = None
+    for operator in operators:
+        if lot.crop_name not in operator.accepted_commodities:
+            continue
+        committed = db.query(func.coalesce(func.sum(StorageBooking.quantity_kg), 0)).filter(
+            StorageBooking.operator_user_id == operator.user_id,
+            StorageBooking.status.in_(["requested", "accepted"]),
+        ).scalar()
+        if committed + payload.quantity_kg <= operator.capacity_kg:
+            compatible = operator
+            break
     if compatible is None:
-        raise HTTPException(status_code=404, detail="No registered compatible storage operator found")
+        raise HTTPException(status_code=404, detail="No compatible storage operator with available capacity found")
     booking = StorageBooking(
         stock_lot_id=lot.id, operator_user_id=compatible.user_id,
         requested_by_user_id=user.id, quantity_kg=payload.quantity_kg,
@@ -149,6 +162,25 @@ def request_storage(payload: StorageBookingCreate, db: Db, user: CurrentUser):
     return {"id": booking.id, "status": booking.status,
             "operator_user_id": booking.operator_user_id,
             "ownership_remains_with": lot.aggregator_user_id}
+
+
+@router.post("/storage/bookings/{booking_id}/accept")
+def accept_storage_booking(booking_id: int, db: Db, user: CurrentUser):
+    profile = db.query(StorageOperatorProfile).filter(
+        StorageOperatorProfile.user_id == user.id
+    ).first()
+    if user.role != "buyer" or user.verification_status != "verified" or profile is None:
+        raise HTTPException(status_code=403, detail="A verified storage operator is required")
+    booking = db.query(StorageBooking).filter(
+        StorageBooking.id == booking_id, StorageBooking.operator_user_id == user.id
+    ).first()
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Storage request not found")
+    if booking.status != "requested":
+        raise HTTPException(status_code=409, detail="Storage request is no longer pending")
+    booking.status = "accepted"
+    db.commit()
+    return {"id": booking.id, "status": booking.status, "stock_lot_id": booking.stock_lot_id}
 
 
 @router.post("/workflows/agent-runs", status_code=201)

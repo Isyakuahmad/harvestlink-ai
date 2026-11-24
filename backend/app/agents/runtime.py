@@ -3,9 +3,10 @@
 Tools are explicitly registered by application code. A model may suggest a tool name,
 but the rulebook and runtime decide whether it can execute.
 """
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from app.agents.rules import get_rulebook
@@ -89,7 +90,7 @@ class AgentRuntime:
                 if result.get("ok") is False:
                     raise RuntimeError(str(result.get("error", "Tool reported failure")))
                 trace.record("step_checked", tool=tool_name, passed=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - tool failures must fail closed
                 trace.record("step_checked", tool=tool_name, passed=False, error=str(exc))
                 trace.status = "failed"
                 return trace

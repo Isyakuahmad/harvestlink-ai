@@ -44,9 +44,15 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "logistics_provider_profiles",
             "logistics_quote_requests",
             "logistics_quotes",
+            "aggregator_stock_offers",
+            "aggregator_stock_deals",
+            "aggregator_stock_deal_events",
+            "market_price_observations",
             "alembic_version",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))
+        stock_columns = {column["name"] for column in inspector.get_columns("aggregator_stock_lots")}
+        assert "reserved_quantity" in stock_columns
 
         user_columns = {column["name"] for column in inspector.get_columns("users")}
         assert user_columns == {

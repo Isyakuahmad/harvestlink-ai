@@ -10,9 +10,12 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_db
 from app.routers.admin import router as admin_router
+from app.routers.aggregator_transactions import router as aggregator_transactions_router
 from app.routers.auth import router as auth_router
 from app.routers.farm_records import router as farm_records_router
+from app.routers.market_intelligence import router as market_intelligence_router
 from app.routers.procurement import router as procurement_router
+from app.routers.supply_chain import router as supply_chain_router
 from app.routers.whatsapp_farmer import router as whatsapp_farmer_router
 from app.routers.workflows import router as workflows_router
 
@@ -22,6 +25,9 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(workflows_router)
 app.include_router(procurement_router)
+app.include_router(supply_chain_router)
+app.include_router(aggregator_transactions_router)
+app.include_router(market_intelligence_router)
 app.include_router(farm_records_router)
 app.include_router(whatsapp_farmer_router)
 DatabaseSession = Annotated[Session, Depends(get_db)]

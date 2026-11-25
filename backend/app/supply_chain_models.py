@@ -16,6 +16,7 @@ class AggregatorStockLot(Base):
     aggregator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     crop_name: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    reserved_quantity: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     unit: Mapped[str] = mapped_column(String(12), nullable=False)
     quality_description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     location: Mapped[str] = mapped_column(String(180), nullable=False)

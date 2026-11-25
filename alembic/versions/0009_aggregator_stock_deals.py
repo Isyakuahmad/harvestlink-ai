@@ -16,8 +16,17 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("aggregator_stock_lots", sa.Column("reserved_quantity", sa.Float(), nullable=False, server_default="0"))
-    op.create_check_constraint("ck_aggregator_stock_reserved_range", "aggregator_stock_lots", "reserved_quantity >= 0 AND reserved_quantity <= quantity")
+    # SQLite cannot ALTER an existing table to add/drop a constraint directly.
+    # Alembic batch mode rebuilds the table safely for SQLite and remains valid
+    # for other supported database dialects.
+    with op.batch_alter_table("aggregator_stock_lots") as batch_op:
+        batch_op.add_column(
+            sa.Column("reserved_quantity", sa.Float(), nullable=False, server_default="0")
+        )
+        batch_op.create_check_constraint(
+            "ck_aggregator_stock_reserved_range",
+            "reserved_quantity >= 0 AND reserved_quantity <= quantity",
+        )
     op.create_table(
         "aggregator_stock_offers",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -63,5 +72,6 @@ def downgrade() -> None:
     for column in ("buyer_user_id", "aggregator_user_id", "stock_lot_id"):
         op.drop_index(f"ix_aggregator_stock_offers_{column}", table_name="aggregator_stock_offers")
     op.drop_table("aggregator_stock_offers")
-    op.drop_constraint("ck_aggregator_stock_reserved_range", "aggregator_stock_lots", type_="check")
-    op.drop_column("aggregator_stock_lots", "reserved_quantity")
+    with op.batch_alter_table("aggregator_stock_lots") as batch_op:
+        batch_op.drop_constraint("ck_aggregator_stock_reserved_range", type_="check")
+        batch_op.drop_column("reserved_quantity")

@@ -47,6 +47,7 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "aggregator_stock_offers",
             "aggregator_stock_deals",
             "aggregator_stock_deal_events",
+            "market_price_observations",
             "alembic_version",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))

@@ -84,6 +84,8 @@ def create_stock(payload: StockCreate, db: Db, user: CurrentUser):
     db.commit()
     db.refresh(lot)
     return {"id": lot.id, "crop_name": lot.crop_name, "quantity": lot.quantity,
+            "reserved_quantity": lot.reserved_quantity,
+            "available_quantity": lot.quantity - lot.reserved_quantity,
             "unit": lot.unit, "location": lot.location, "status": lot.status,
             "owner_user_id": lot.aggregator_user_id}
 
@@ -96,6 +98,8 @@ def list_aggregator_stock(db: Db, user: CurrentUser):
         AggregatorStockLot.status == "available"
     ).order_by(AggregatorStockLot.created_at.desc()).all()
     return [{"id": lot.id, "crop_name": lot.crop_name, "quantity": lot.quantity,
+             "reserved_quantity": lot.reserved_quantity,
+             "available_quantity": lot.quantity - lot.reserved_quantity,
              "unit": lot.unit, "quality_description": lot.quality_description,
              "location": lot.location} for lot in lots]
 

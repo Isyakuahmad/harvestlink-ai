@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.routers.aggregator_transactions import router as aggregator_transactions_router
 from app.routers.admin import router as admin_router
+from app.routers.aggregator_transactions import router as aggregator_transactions_router
 from app.routers.auth import router as auth_router
 from app.routers.farm_records import router as farm_records_router
 from app.routers.procurement import router as procurement_router

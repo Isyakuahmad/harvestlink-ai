@@ -7,11 +7,15 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app.aggregator_transaction_models import (
+    AggregatorStockDeal,
+    AggregatorStockDealEvent,
+    AggregatorStockOffer,
+)
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import AuditLog, BuyerProfile, User
 from app.supply_chain_models import AggregatorStockLot
-from app.aggregator_transaction_models import AggregatorStockDeal, AggregatorStockDealEvent, AggregatorStockOffer
 
 router = APIRouter(prefix="/api/v1/aggregator", tags=["aggregator-transactions"])
 Db = Annotated[Session, Depends(get_db)]

@@ -2,9 +2,8 @@ import hashlib
 import json
 from typing import Annotated
 
-from sqlalchemy.exc import IntegrityError
-
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.agents.schemas import (
@@ -15,10 +14,8 @@ from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import (
     AgentTask,
-    AuditLog,
     BuyerRequirement,
     User,
-    VerificationCase,
     WorkflowRun,
 )
 

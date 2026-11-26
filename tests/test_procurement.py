@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pytest
 from app.db import Base, build_engine, get_db
 from app.main import app
+from app.workflow_execution import run_pending_once
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -24,6 +25,7 @@ def client(tmp_path, monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.state.workflow_session_factory = factory
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -88,13 +90,16 @@ def test_buyer_interest_farmer_response_and_confirmed_transaction(client):
         "unit": "tonne", "location": "Nasarawa",
     })
     assert req.status_code == 201, req.text
-    offer = client.post("/api/v1/workflows/produce-offers", headers=farmer, json={
+    offer = client.post("/api/v1/workflows/produce-offers", headers={**farmer, "Idempotency-Key": "procurement-offer-key"}, json={
         "crop_name": "sesame", "quantity": 3000, "unit": "kg",
         "quality_description": "Clean dry sesame", "location": "Lafia, Nasarawa",
         "available_on": (date.today() + timedelta(days=10)).isoformat(),
     })
-    assert offer.status_code == 201, offer.text
-    approve_listing(client, admin, offer.json()["listing_id"])
+    assert offer.status_code == 202, offer.text
+    run_id = offer.json()["workflow_run_id"]
+    run_pending_once(client.app.state.workflow_session_factory)
+    listing_id = client.get(f"/api/v1/workflows/{run_id}", headers=farmer).json()["listing_id"]
+    approve_listing(client, admin, listing_id)
 
     matches = client.get("/api/v1/marketplace/matches", headers=buyer)
     assert matches.status_code == 200, matches.text

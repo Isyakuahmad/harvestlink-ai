@@ -1,8 +1,10 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from app.db import Base, build_engine, get_db
 from app.main import app
+from app.models import User, WorkflowRun
+from app.workflow_execution import run_pending_once
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -24,6 +26,7 @@ def client(tmp_path, monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.state.workflow_session_factory = factory
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -92,7 +95,7 @@ def test_farmer_trust_matching_orchestrator_flow(client):
 
     offer = client.post(
         "/api/v1/workflows/produce-offers",
-        headers=farmer_headers,
+        headers={**farmer_headers, "Idempotency-Key": "workflow-test-1-key"},
         json={
             "crop_name": "White Sesame",
             "quantity": 20000,
@@ -104,8 +107,14 @@ def test_farmer_trust_matching_orchestrator_flow(client):
             "currency": "NGN",
         },
     )
-    assert offer.status_code == 201, offer.text
-    result = offer.json()
+    assert offer.status_code == 202, offer.text
+    queued = offer.json()
+    assert queued["status"] == "queued"
+    run_pending_once(client.app.state.workflow_session_factory)
+    history_response = client.get(
+        f"/api/v1/workflows/{queued['workflow_run_id']}", headers=farmer_headers
+    )
+    result = history_response.json()["result"]
     assert result["workflow_status"] == "completed"
     assert result["listing_status"] == "pending_review"
     assert result["trust"]["identity_status"] == "unverified"
@@ -144,7 +153,7 @@ def test_incompatible_crop_is_not_matched(client):
     )
     response = client.post(
         "/api/v1/workflows/produce-offers",
-        headers=farmer_headers,
+        headers={**farmer_headers, "Idempotency-Key": "workflow-test-2-key"},
         json={
             "crop_name": "sesame",
             "quantity": 2,
@@ -154,8 +163,12 @@ def test_incompatible_crop_is_not_matched(client):
             "available_on": date.today().isoformat(),
         },
     )
-    assert response.status_code == 201
-    assert response.json()["matches"][0]["eligible"] is False
+    assert response.status_code == 202
+    run_pending_once(client.app.state.workflow_session_factory)
+    completed = client.get(
+        f"/api/v1/workflows/{response.json()['workflow_run_id']}", headers=farmer_headers
+    ).json()["result"]
+    assert completed["matches"][0]["eligible"] is False
 
 
 def test_workflow_history_is_private_to_the_farmer(client):
@@ -163,7 +176,7 @@ def test_workflow_history_is_private_to_the_farmer(client):
     other_headers = register_and_login(client, "other@example.com", "Other Farmer")
     response = client.post(
         "/api/v1/workflows/produce-offers",
-        headers=farmer_headers,
+        headers={**farmer_headers, "Idempotency-Key": "workflow-test-3-key"},
         json={
             "crop_name": "maize",
             "quantity": 2,
@@ -173,11 +186,91 @@ def test_workflow_history_is_private_to_the_farmer(client):
             "available_on": date.today().isoformat(),
         },
     )
+    assert response.status_code == 202
     run_id = response.json()["workflow_run_id"]
+    run_pending_once(client.app.state.workflow_session_factory)
     hidden = client.get(f"/api/v1/workflows/{run_id}", headers=other_headers)
     assert hidden.status_code == 404
 
 
+
+
+def test_offer_submission_is_idempotent_and_rejects_key_reuse(client):
+    headers = register_and_login(client, "idempotent@example.com", "Idempotent Farmer")
+    headers = {**headers, "Idempotency-Key": "same-request-key-123"}
+    payload = {
+        "crop_name": "maize",
+        "quantity": 5,
+        "unit": "tonne",
+        "quality_description": "Clean dry maize grain",
+        "location": "Warri, Delta",
+        "available_on": date.today().isoformat(),
+    }
+    first = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=payload
+    )
+    second = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=payload
+    )
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()["workflow_run_id"] == second.json()["workflow_run_id"]
+    assert second.json()["duplicate_request"] is True
+
+    changed = {**payload, "quantity": 6}
+    conflict = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=changed
+    )
+    assert conflict.status_code == 409
+
+
+def test_workflow_retries_and_exposes_manual_retry_after_exhaustion(client):
+    headers = register_and_login(client, "retry@example.com", "Retry Farmer")
+    factory = client.app.state.workflow_session_factory
+    db = factory()
+    try:
+        farmer = db.query(User).filter(User.email == "retry@example.com").one()
+        run = WorkflowRun(
+            farmer_user_id=farmer.id,
+            idempotency_key="retry-test-key-123",
+            request_hash="bad-request-hash",
+            status="queued",
+            result_json={"request": {"invalid": "payload"}},
+            attempt_count=0,
+            max_attempts=2,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+    finally:
+        db.close()
+
+    run_pending_once(factory)
+    db = factory()
+    try:
+        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).one()
+        assert run.status == "retrying"
+        assert run.attempt_count == 1
+        run.next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+    finally:
+        db.close()
+
+    run_pending_once(factory)
+    db = factory()
+    try:
+        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).one()
+        assert run.status == "failed"
+        assert run.attempt_count == 2
+    finally:
+        db.close()
+
+    retry = client.post(f"/api/v1/workflows/{run_id}/retry", headers=headers)
+    assert retry.status_code == 202
+    assert retry.json()["status"] == "queued"
+
+
 def test_offer_requires_authentication(client):
-    response = client.post("/api/v1/workflows/produce-offers", json={})
+    response = client.post("/api/v1/workflows/produce-offers", headers={"Idempotency-Key": "no-auth-key-123"}, json={})
     assert response.status_code == 401

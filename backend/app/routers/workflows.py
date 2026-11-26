@@ -1,23 +1,21 @@
+import hashlib
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.agents.orchestrator import execute_offer_workflow
 from app.agents.schemas import (
     BuyerRequirementInput,
     ProduceOfferInput,
-    WorkflowResponse,
 )
 from app.db import get_db
 from app.dependencies import get_current_user
 from app.models import (
     AgentTask,
-    AuditLog,
     BuyerRequirement,
-    ProduceListing,
     User,
-    VerificationCase,
     WorkflowRun,
 )
 
@@ -74,34 +72,103 @@ def list_buyer_requirements(db: DatabaseSession, user: CurrentUser):
     ]
 
 
-@router.post("/workflows/produce-offers", response_model=WorkflowResponse, status_code=201)
+@router.post("/workflows/produce-offers", status_code=202)
 def submit_produce_offer(
-    payload: ProduceOfferInput, db: DatabaseSession, user: CurrentUser
+    payload: ProduceOfferInput,
+    db: DatabaseSession,
+    user: CurrentUser,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)],
 ):
     if user.role != "farmer":
         raise HTTPException(status_code=403, detail="Only farmer accounts can submit offers")
-    result = execute_offer_workflow(db, user.id, payload)
-    db.add(VerificationCase(
-        subject_type="listing", subject_id=result.listing_id,
-        submitted_by_user_id=user.id, status="pending",
-    ))
-    db.add(AuditLog(
-        actor_user_id=user.id, action="listing.submitted_for_review",
-        subject_type="produce_listing", subject_id=result.listing_id,
-        details_json={"workflow_run_id": result.workflow_run_id},
-    ))
+
+    request_data = payload.model_dump(mode="json")
+    canonical = json.dumps(request_data, sort_keys=True, separators=(",", ":"))
+    request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    existing = db.query(WorkflowRun).filter(
+        WorkflowRun.farmer_user_id == user.id,
+        WorkflowRun.idempotency_key == idempotency_key,
+    ).first()
+    if existing:
+        if existing.request_hash != request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="This Idempotency-Key was already used with a different offer",
+            )
+        return {
+            "workflow_run_id": existing.id,
+            "status": existing.status,
+            "listing_id": existing.listing_id,
+            "duplicate_request": True,
+        }
+
+    run = WorkflowRun(
+        farmer_user_id=user.id,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+        status="queued",
+        result_json={"request": request_data},
+        attempt_count=0,
+        max_attempts=5,
+    )
+    db.add(run)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(WorkflowRun).filter(
+            WorkflowRun.farmer_user_id == user.id,
+            WorkflowRun.idempotency_key == idempotency_key,
+        ).first()
+        if existing is None:
+            raise
+        if existing.request_hash != request_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="This Idempotency-Key was already used with a different offer",
+            )
+        return {
+            "workflow_run_id": existing.id,
+            "status": existing.status,
+            "listing_id": existing.listing_id,
+            "duplicate_request": True,
+        }
+    db.refresh(run)
+    return {
+        "workflow_run_id": run.id,
+        "status": run.status,
+        "listing_id": run.listing_id,
+        "duplicate_request": False,
+        "poll_url": f"/api/v1/workflows/{run.id}",
+    }
+
+
+@router.post("/workflows/{workflow_run_id}/retry", status_code=202)
+def retry_failed_workflow(workflow_run_id: int, db: DatabaseSession, user: CurrentUser):
+    run = db.query(WorkflowRun).filter(
+        WorkflowRun.id == workflow_run_id,
+        WorkflowRun.farmer_user_id == user.id,
+    ).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if run.status != "failed":
+        raise HTTPException(status_code=409, detail="Only failed workflows can be manually retried")
+    run.status = "queued"
+    run.attempt_count = 0
+    run.next_retry_at = None
+    run.locked_at = None
+    run.last_error = None
     db.commit()
-    return result
+    return {"workflow_run_id": run.id, "status": run.status}
 
 
 @router.get("/workflows/{workflow_run_id}")
 def get_workflow_run(workflow_run_id: int, db: DatabaseSession, user: CurrentUser):
     run = (
         db.query(WorkflowRun)
-        .join(ProduceListing, WorkflowRun.listing_id == ProduceListing.id)
         .filter(
             WorkflowRun.id == workflow_run_id,
-            ProduceListing.farmer_user_id == user.id,
+            WorkflowRun.farmer_user_id == user.id,
         )
         .first()
     )
@@ -117,7 +184,11 @@ def get_workflow_run(workflow_run_id: int, db: DatabaseSession, user: CurrentUse
         "workflow_run_id": run.id,
         "listing_id": run.listing_id,
         "status": run.status,
-        "result": run.result_json,
+        "result": run.result_json.get("response", run.result_json if run.status == "completed" else None),
+        "attempt_count": run.attempt_count,
+        "max_attempts": run.max_attempts,
+        "next_retry_at": run.next_retry_at,
+        "last_error": run.last_error,
         "agent_tasks": [
             {
                 "task_id": task.id,

@@ -1,6 +1,6 @@
 """Database-backed, resumable execution for marketplace offer workflows."""
-from datetime import UTC, datetime, timedelta
 import time
+from datetime import UTC, datetime, timedelta
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import or_
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.buyer_matching import find_matches
 from app.agents.farmer import structure_offer
-from app.agents.schemas import ProduceOfferInput, TrustAssessment, WorkflowResponse
+from app.agents.schemas import ProduceOfferInput, TrustAssessment
 from app.agents.trust import assess_listing
 from app.db import SessionLocal
 from app.models import (
@@ -203,7 +203,7 @@ def run_one_workflow(db: Session) -> int | None:
         return None
     try:
         process_workflow(db, run_id)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
         run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).one()
         run.last_error = str(exc)[:4000]

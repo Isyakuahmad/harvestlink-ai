@@ -184,7 +184,7 @@ def get_workflow_run(workflow_run_id: int, db: DatabaseSession, user: CurrentUse
         "workflow_run_id": run.id,
         "listing_id": run.listing_id,
         "status": run.status,
-        "result": run.result_json.get("response"),
+        "result": run.result_json.get("response", run.result_json if run.status == "completed" else None),
         "attempt_count": run.attempt_count,
         "max_attempts": run.max_attempts,
         "next_retry_at": run.next_retry_at,

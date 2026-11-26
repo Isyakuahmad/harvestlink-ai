@@ -219,13 +219,18 @@ def run_one_workflow(db: Session) -> int | None:
     return run_id
 
 
+def run_pending_once(session_factory=SessionLocal) -> int | None:
+    """Run one queued workflow using an injectable session factory (also used by tests)."""
+    db = session_factory()
+    try:
+        return run_one_workflow(db)
+    finally:
+        db.close()
+
+
 def run_forever(poll_seconds: float = 2.0) -> None:
     while True:
-        db = SessionLocal()
-        try:
-            claimed = run_one_workflow(db)
-        finally:
-            db.close()
+        claimed = run_pending_once()
         if claimed is None:
             time.sleep(poll_seconds)
 

@@ -3,8 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from app.db import Base, build_engine, get_db
 from app.main import app
-from app.workflow_execution import run_pending_once
 from app.models import User, WorkflowRun
+from app.workflow_execution import run_pending_once
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 

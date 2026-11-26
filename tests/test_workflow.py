@@ -192,6 +192,36 @@ def test_workflow_history_is_private_to_the_farmer(client):
     assert hidden.status_code == 404
 
 
+
+
+def test_offer_submission_is_idempotent_and_rejects_key_reuse(client):
+    headers = register_and_login(client, "idempotent@example.com", "Idempotent Farmer")
+    headers = {**headers, "Idempotency-Key": "same-request-key-123"}
+    payload = {
+        "crop_name": "maize",
+        "quantity": 5,
+        "unit": "tonne",
+        "quality_description": "Clean dry maize grain",
+        "location": "Warri, Delta",
+        "available_on": date.today().isoformat(),
+    }
+    first = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=payload
+    )
+    second = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=payload
+    )
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()["workflow_run_id"] == second.json()["workflow_run_id"]
+    assert second.json()["duplicate_request"] is True
+
+    changed = {**payload, "quantity": 6}
+    conflict = client.post(
+        "/api/v1/workflows/produce-offers", headers=headers, json=changed
+    )
+    assert conflict.status_code == 409
+
 def test_offer_requires_authentication(client):
     response = client.post("/api/v1/workflows/produce-offers", headers={"Idempotency-Key": "no-auth-key-123"}, json={})
     assert response.status_code == 401

@@ -1,9 +1,10 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from app.db import Base, build_engine, get_db
 from app.main import app
 from app.workflow_execution import run_pending_once
+from app.models import User, WorkflowRun
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -221,6 +222,54 @@ def test_offer_submission_is_idempotent_and_rejects_key_reuse(client):
         "/api/v1/workflows/produce-offers", headers=headers, json=changed
     )
     assert conflict.status_code == 409
+
+
+def test_workflow_retries_and_exposes_manual_retry_after_exhaustion(client):
+    headers = register_and_login(client, "retry@example.com", "Retry Farmer")
+    factory = client.app.state.workflow_session_factory
+    db = factory()
+    try:
+        farmer = db.query(User).filter(User.email == "retry@example.com").one()
+        run = WorkflowRun(
+            farmer_user_id=farmer.id,
+            idempotency_key="retry-test-key-123",
+            request_hash="bad-request-hash",
+            status="queued",
+            result_json={"request": {"invalid": "payload"}},
+            attempt_count=0,
+            max_attempts=2,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+    finally:
+        db.close()
+
+    run_pending_once(factory)
+    db = factory()
+    try:
+        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).one()
+        assert run.status == "retrying"
+        assert run.attempt_count == 1
+        run.next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.commit()
+    finally:
+        db.close()
+
+    run_pending_once(factory)
+    db = factory()
+    try:
+        run = db.query(WorkflowRun).filter(WorkflowRun.id == run_id).one()
+        assert run.status == "failed"
+        assert run.attempt_count == 2
+    finally:
+        db.close()
+
+    retry = client.post(f"/api/v1/workflows/{run_id}/retry", headers=headers)
+    assert retry.status_code == 202
+    assert retry.json()["status"] == "queued"
+
 
 def test_offer_requires_authentication(client):
     response = client.post("/api/v1/workflows/produce-offers", headers={"Idempotency-Key": "no-auth-key-123"}, json={})

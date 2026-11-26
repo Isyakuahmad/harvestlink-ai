@@ -13,7 +13,7 @@ A multi-agent platform for coordinating Nigerian agricultural supply chains acro
 - Ruff and pytest CI.
 
 ### Workflow 1 — Farmer → Trust → Buyer Matching → Orchestrator
-The first executable workflow is available on the feature/agent-workflow-1 branch.
+The offer workflow is durably queued and executed by a separate worker process.
 
 1. A farmer submits a structured produce offer.
 2. Farmer Agent normalizes the offer fields.
@@ -27,12 +27,28 @@ The workflow creates internal match suggestions only. It does not publish listin
 
 - POST /api/v1/buyer-requirements — authenticated buyer creates a demand requirement.
 - GET /api/v1/buyer-requirements — list the signed-in user's requirements.
-- POST /api/v1/workflows/produce-offers — authenticated farmer submits an offer and runs the complete workflow.
-- GET /api/v1/workflows/{workflow_run_id} — farmer retrieves their own workflow result.
+- POST /api/v1/workflows/produce-offers — authenticated farmer queues an offer workflow. Requires an `Idempotency-Key` header (8–128 characters); returns HTTP 202 with a workflow ID.
+- GET /api/v1/workflows/{workflow_run_id} — farmer polls their own workflow status/result, including retry state and last error.
+- POST /api/v1/workflows/{workflow_run_id}/retry — farmer requeues their own exhausted/failed workflow.
 
 Use the interactive API docs at /docs to try the endpoints. Public farmer registration creates an unverified farmer account and a pending verification case. Buyer registration is available at `POST /api/v1/auth/register/buyer`; it creates a buyer profile and a pending verification case. Buyer demand creation is blocked until an administrator approves the buyer.
 
-### Buyer onboarding and human approval
+#
+### Durable workflow worker
+
+The API process only validates and persists the request; it does not execute the agent chain in the HTTP request. Start at least one worker alongside the API:
+
+```bash
+cd backend
+python -m app.workflow_execution
+```
+
+The worker claims due records from `workflow_runs`, stores a checkpoint after each agent stage, and retries failed runs with exponential backoff (2, 4, 8, 16 seconds; capped at 5 minutes) up to five attempts. Stale worker claims can be recovered after five minutes. A failed run can be manually requeued by its owning farmer. Run the API and worker against the same database.
+
+Clients must reuse the same `Idempotency-Key` when retrying the same HTTP request. Reusing a key with a different normalized request returns HTTP 409. Workflow execution is at-least-once at the worker level; completed agent checkpoints and transaction commits prevent completed stages from being repeated. External side effects must remain behind their own idempotency protections before they are added to this workflow.
+
+
+## Buyer onboarding and human approval
 - `POST /api/v1/auth/register/buyer` — buyer account plus organization/contact profile.
 - `GET /api/v1/admin/verification-cases` — administrator review queue.
 - `POST /api/v1/admin/verification-cases/{case_id}/decision` — approve or reject with a mandatory reason.

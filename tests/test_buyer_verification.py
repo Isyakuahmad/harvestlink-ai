@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 from app.db import Base, build_engine, get_db
 from app.main import app
+from app.workflow_execution import run_pending_once
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -24,6 +25,7 @@ def client(tmp_path, monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = override_db
+    app.state.workflow_session_factory = factory
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -90,13 +92,15 @@ def test_farmer_listing_needs_identity_then_listing_approval(client):
     farmer_headers = login(client, "farmer@example.com")
     register(client, "admin@example.com", "Admin User")
     admin = login(client, "admin@example.com")
-    offer = client.post("/api/v1/workflows/produce-offers", headers=farmer_headers, json={
+    offer = client.post("/api/v1/workflows/produce-offers", headers={**farmer_headers, "Idempotency-Key": "verification-offer-key"}, json={
         "crop_name": "maize", "quantity": 2, "unit": "tonne",
         "quality_description": "Dry maize grain, clean and bagged",
         "location": "Minna, Niger", "available_on": date.today().isoformat(),
     })
-    assert offer.status_code == 201, offer.text
-    listing_id = offer.json()["listing_id"]
+    assert offer.status_code == 202, offer.text
+    run_id = offer.json()["workflow_run_id"]
+    run_pending_once(client.app.state.workflow_session_factory)
+    listing_id = client.get(f"/api/v1/workflows/{run_id}", headers=farmer_headers).json()["listing_id"]
     cases = client.get("/api/v1/admin/verification-cases", headers=admin).json()
     user_case = next(c for c in cases if c["subject_type"] == "user")
     listing_case = next(c for c in cases if c["subject_type"] == "listing")

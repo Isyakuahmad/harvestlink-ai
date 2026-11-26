@@ -51,6 +51,12 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             "alembic_version",
         }
         assert expected_tables.issubset(set(inspector.get_table_names()))
+        workflow_columns = {column["name"] for column in inspector.get_columns("workflow_runs")}
+        assert {
+            "farmer_user_id", "idempotency_key", "request_hash", "attempt_count",
+            "max_attempts", "next_retry_at", "locked_at", "last_error",
+        }.issubset(workflow_columns)
+
         stock_columns = {column["name"] for column in inspector.get_columns("aggregator_stock_lots")}
         assert "reserved_quantity" in stock_columns
 

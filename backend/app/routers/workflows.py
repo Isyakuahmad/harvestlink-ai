@@ -2,6 +2,8 @@ import hashlib
 import json
 from typing import Annotated
 
+from sqlalchemy.exc import IntegrityError
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
@@ -15,12 +17,10 @@ from app.models import (
     AgentTask,
     AuditLog,
     BuyerRequirement,
-    ProduceListing,
     User,
     VerificationCase,
     WorkflowRun,
 )
-from sqlalchemy.exc import IntegrityError
 
 router = APIRouter(prefix="/api/v1", tags=["marketplace workflow"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
@@ -144,6 +144,25 @@ def submit_produce_offer(
         "duplicate_request": False,
         "poll_url": f"/api/v1/workflows/{run.id}",
     }
+
+
+@router.post("/workflows/{workflow_run_id}/retry", status_code=202)
+def retry_failed_workflow(workflow_run_id: int, db: DatabaseSession, user: CurrentUser):
+    run = db.query(WorkflowRun).filter(
+        WorkflowRun.id == workflow_run_id,
+        WorkflowRun.farmer_user_id == user.id,
+    ).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    if run.status != "failed":
+        raise HTTPException(status_code=409, detail="Only failed workflows can be manually retried")
+    run.status = "queued"
+    run.attempt_count = 0
+    run.next_retry_at = None
+    run.locked_at = None
+    run.last_error = None
+    db.commit()
+    return {"workflow_run_id": run.id, "status": run.status}
 
 
 @router.get("/workflows/{workflow_run_id}")

@@ -25,6 +25,13 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("next_retry_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(sa.Column("last_error", sa.Text(), nullable=True))
+    op.execute(
+        "UPDATE workflow_runs SET farmer_user_id = "
+        "(SELECT farmer_user_id FROM produce_listings "
+        "WHERE produce_listings.id = workflow_runs.listing_id) "
+        "WHERE farmer_user_id IS NULL"
+    )
+    with op.batch_alter_table("workflow_runs") as batch_op:
         batch_op.create_foreign_key(
             "fk_workflow_runs_farmer_user_id", "users", ["farmer_user_id"], ["id"]
         )
